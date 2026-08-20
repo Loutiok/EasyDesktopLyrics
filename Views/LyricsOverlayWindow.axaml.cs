@@ -42,10 +42,13 @@ public sealed partial class LyricsOverlayWindow : Window
     private bool _suppressPositionUpdate;
     private bool _dragStarted;
     private bool _coverAnimating;
+    private bool _coverLayoutExpanded;
     private double _coverAnimSize;
     private DateTimeOffset _coverAnimStart;
     private bool _coverTitleEnterPending;
     private bool _coverPosDirty;
+    private int _coverMotionToken;
+    private CoverAnimationPlan _coverPlan;
     private bool _firstSizeApplied;
     private int _lastGrowBottom;
     private bool _lastCoverEnabled;
@@ -213,6 +216,8 @@ public sealed partial class LyricsOverlayWindow : Window
         if (_transGrid.Bounds.Height > 0)
             h += _transGrid.Bounds.Height + _vm.LineSpacing;
         h = Math.Max(h, Cover.Bounds.Height);
+        if (_coverLayoutExpanded)
+            h = Math.Max(h, _coverAnimSize);
         // 动画期间歌名显示在封面下方：窗口容纳封面目标高度（行高×3）+ 间距 + 歌名区
         if (_coverAnimating && CoverTitleBox.IsVisible && CoverTitleBox.Bounds.Height > 0)
             h = Math.Max(h, _coverAnimSize + 8 + CoverTitleBox.Bounds.Height);
@@ -1127,11 +1132,6 @@ public sealed partial class LyricsOverlayWindow : Window
             new DoubleTransition { Property = Visual.OpacityProperty, Duration = dur, Easing = easing },
             new TransformOperationsTransition { Property = Visual.RenderTransformProperty, Duration = dur, Easing = easing },
         };
-        CoverImage.Transitions = new Transitions
-        {
-            new DoubleTransition { Property = Layoutable.WidthProperty, Duration = dur, Easing = easing },
-            new DoubleTransition { Property = Layoutable.HeightProperty, Duration = dur, Easing = easing },
-        };
     }
 
     private static Easing EasingFor(string name) => name switch
@@ -1144,27 +1144,12 @@ public sealed partial class LyricsOverlayWindow : Window
         _ => new QuadraticEaseOut(),
     };
 
-    /// <summary>切歌封面淡入淡出方向偏移：1=上，2=下，3=左，4=右，0=无位移；强度可配置。</summary>
-    private (double dx, double dy) CoverAnimSlideOffset()
-    {
-        var dir = Math.Clamp(_settingsService.Current.CoverAnimDirection, 0, 4);
-        var d = Math.Clamp(_settingsService.Current.CoverAnimSlideDistance, 0, 60);
-        return dir switch
-        {
-            1 => (0, -d), // 起点在上方（向下滑入）
-            2 => (0, d),  // 起点在下方（向上滑入）
-            3 => (-d, 0), // 起点在左侧（向右滑入）
-            4 => (d, 0),  // 起点在右侧（向左滑入）
-            _ => (0, 0),
-        };
-    }
-
     /// <summary>歌词加载完成的等待超时（防封面卡死）。</summary>
     private static readonly TimeSpan CoverAnimTimeout = TimeSpan.FromSeconds(6);
 
     /// <summary>
     /// 切歌（任意来源：播放器内切歌 / 悬浮窗上一首下一首）动画状态机（方案二：窗口内叠加）：
-    /// 窗口尺寸全程不变（不隐藏歌词、不撑高窗口、不锁定 MinWidth）；
+    /// 窗口宽度全程不变；高度仅在动画期间容纳放大后的封面及歌名区；
     /// 封面作为覆盖层放大到行高尺寸显示在歌词行中央（歌词透明被掩盖），
     /// 歌词 Ready/NoLyric 后（或超时）执行分支：
     /// 常驻=封面缩小移动到常驻位 / 不常驻=按方向滑出淡出。尺寸与位置均由 Transitions 平滑过渡，
@@ -1181,9 +1166,12 @@ public sealed partial class LyricsOverlayWindow : Window
         {
             // 无封面：直接显示歌词
             _coverAnimating = false;
+            _coverLayoutExpanded = false;
+            _coverMotionToken++;
             Cover.Opacity = 0;
             ExitCoverTitle();
             SetLyricsOpacity(1);
+            SyncWindowHeight();
             return;
         }
 
@@ -1196,33 +1184,20 @@ public sealed partial class LyricsOverlayWindow : Window
             _coverTimeoutTimer.Stop();
             SetLyricsOpacity(0);
             _coverAnimSize = AnimCoverSize();
+            _coverLayoutExpanded = true;
+            SyncWindowHeight();
             _coverAnimStart = DateTimeOffset.UtcNow;
             _coverTimeoutTimer.Interval = TimeSpan.FromMilliseconds(_vm.CoverAnimMaxMs);
             _coverTimeoutTimer.Start();
 
-            // 窗口内叠加：封面恢复纯 300% 行高正方形、居中于歌词行，淡入掩盖歌词；
-            // 歌名/歌手为独立覆盖层（封面下方），淡入淡出、不跟随封面动画路径
-            CoverImage.Width = _coverAnimSize;
-            CoverImage.Height = _coverAnimSize;
-            var cx = Math.Max(0, (OuterGrid.Bounds.Width - _coverAnimSize) / 2);
-
-            if (_vm.CoverEnabled)
-            {
-                // 常驻：封面从常驻位过渡到中心（掩盖歌词），移动/缩放用可配置缓动与时长
-                Cover.RenderTransform = Translate(cx, 0);
-                Cover.Opacity = 1;
-            }
-            else
-            {
-                // 不常驻：从方向位瞬移起点 → 淡入 + 滑向中心（参考歌名切入动画）
-                var (ox, oy) = CoverAnimSlideOffset();
-                var saved = Cover.Transitions;
-                Cover.Transitions = null;
-                Cover.RenderTransform = Translate(cx + ox, oy);
-                Cover.Transitions = saved;
-                Cover.RenderTransform = Translate(cx, 0);
-                Cover.Opacity = 1;
-            }
+            // 固定布局尺寸 + 中心缩放：不再动画 Width/Height，避免左上角扩张造成斜向淡入。
+            CoverImage.Width = _coverSize;
+            CoverImage.Height = _coverSize;
+            _coverPlan = CoverAnimationPlan.Create(
+                OuterGrid.Bounds.Width, _coverSize, _coverAnimSize, CoverSlotOffset(),
+                _settingsService.Current.CoverAnimDirection,
+                _settingsService.Current.CoverAnimSlideDistance);
+            BeginCoverMotion(_coverPlan.Start, _coverPlan.Center);
 
             EnterCoverTitle();
             _coverPosDirty = true;
@@ -1232,8 +1207,10 @@ public sealed partial class LyricsOverlayWindow : Window
 
         // 非动画切歌：统一应用静止状态
         _coverAnimating = false;
+        _coverLayoutExpanded = false;
         ExitCoverTitle();
         ApplyCoverRestingState(immediate: true);
+        SyncWindowHeight();
     }
 
     /// <summary>歌词加载完成（Ready/NoLyric）→ 动画进入结束阶段；未达到最短时长则等待补齐。</summary>
@@ -1255,7 +1232,14 @@ public sealed partial class LyricsOverlayWindow : Window
         _coverStageTimer.Stop();
         _coverTimeoutTimer.Stop();
         if (!_coverAnimating)
+        {
+            if (_coverLayoutExpanded)
+            {
+                _coverLayoutExpanded = false;
+                SyncWindowHeight();
+            }
             return;
+        }
 
         _coverAnimating = false;
         _coverPosDirty = false;
@@ -1263,23 +1247,19 @@ public sealed partial class LyricsOverlayWindow : Window
         ExitCoverTitle(); // 歌名淡出（250ms）后退出布局
         if (_vm.CoverEnabled)
         {
-            // 常驻：封面缩小回常驻尺寸并移动到常驻位（尺寸/位置过渡动画）
-            CoverImage.Width = _coverSize;
-            CoverImage.Height = _coverSize;
-            var target = CoverSlotOffset();
-            Cover.RenderTransform = Translate(target.X, target.Y);
-            Cover.Opacity = 1;
+            // 常驻：围绕中心缩小并移动到常驻位，布局尺寸保持不变。
+            ApplyCoverVisual(_coverPlan.PersistentEnd);
         }
         else
         {
-            // 不常驻：封面滑向方向位并淡出（与进入方向一致），随后恢复常驻尺寸
-            var (ox, oy) = CoverAnimSlideOffset();
-            var cx = Math.Max(0, (OuterGrid.Bounds.Width - _coverAnimSize) / 2);
-            Cover.RenderTransform = Translate(cx + ox, oy);
-            Cover.Opacity = 0;
-            CoverImage.Width = _coverSize;
-            CoverImage.Height = _coverSize;
+            // 不常驻：沿配置方向滑出并淡出。
+            ApplyCoverVisual(_coverPlan.TransientEnd);
         }
+
+        // 保持动画画布高度直到退出变换结束，避免窗口先收缩而裁掉正在缩放/滑出的封面。
+        _coverStageTimer.Interval = TimeSpan.FromMilliseconds(
+            Math.Clamp(_settingsService.Current.CoverAnimDurationMs, 100, 2000) + 50);
+        _coverStageTimer.Start();
     }
 
     /// <summary>
@@ -1369,7 +1349,7 @@ public sealed partial class LyricsOverlayWindow : Window
         if (_vm.CoverEnabled && Cover.Opacity > 0)
         {
             var target = CoverSlotOffset();
-            Cover.RenderTransform = Translate(target.X, target.Y);
+            ApplyCoverVisual(CoverAnimationPlan.Resting(target, visible: true));
         }
     }
 
@@ -1384,11 +1364,10 @@ public sealed partial class LyricsOverlayWindow : Window
             return;
 
         var coverTransitions = Cover.Transitions;
-        var imageTransitions = CoverImage.Transitions;
         if (immediate)
         {
+            _coverMotionToken++;
             Cover.Transitions = null;
-            CoverImage.Transitions = null;
         }
 
         try
@@ -1400,22 +1379,43 @@ public sealed partial class LyricsOverlayWindow : Window
                 CoverImage.Width = _coverSize;
                 CoverImage.Height = _coverSize;
                 var target = CoverSlotOffset();
-                Cover.RenderTransform = Translate(target.X, target.Y);
-                Cover.Opacity = 1;
+                ApplyCoverVisual(CoverAnimationPlan.Resting(target, visible: true));
             }
             else
             {
-                Cover.Opacity = 0;
+                ApplyCoverVisual(CoverAnimationPlan.Resting(CoverSlotOffset(), visible: false));
             }
         }
         finally
         {
             if (immediate)
-            {
                 Cover.Transitions = coverTransitions;
-                CoverImage.Transitions = imageTransitions;
-            }
         }
+    }
+
+    /// <summary>先提交无过渡起点，下一调度轮次再进入目标状态，确保方向起点真实参与渲染。</summary>
+    private void BeginCoverMotion(CoverVisualState start, CoverVisualState target)
+    {
+        var token = ++_coverMotionToken;
+        var transitions = Cover.Transitions;
+        Cover.Transitions = null;
+        ApplyCoverVisual(start);
+        Cover.Transitions = transitions;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (token == _coverMotionToken && _coverAnimating)
+                ApplyCoverVisual(target);
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>应用统一的 Translate + Scale + Opacity 状态；所有状态使用相同变换结构以保证可插值。</summary>
+    private void ApplyCoverVisual(CoverVisualState state)
+    {
+        var b = new TransformOperations.Builder(2);
+        b.AppendTranslate(state.X, state.Y);
+        b.AppendScale(state.Scale, state.Scale);
+        Cover.RenderTransform = b.Build();
+        Cover.Opacity = state.Opacity;
     }
 
     /// <summary>

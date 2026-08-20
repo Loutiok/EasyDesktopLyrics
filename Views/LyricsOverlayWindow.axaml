@@ -41,6 +41,7 @@
       <!-- 封面覆盖层：RenderTransform 定位（常驻位 / 窗口中心）。纯封面图像，圆角完整。 -->
       <Border x:Name="Cover" HorizontalAlignment="Left" VerticalAlignment="Top"
               CornerRadius="8" ClipToBounds="True"
+              RenderTransformOrigin="50%,50%"
               IsHitTestVisible="False" Opacity="0">
         <Border.Transitions>
           <Transitions>
@@ -48,14 +49,7 @@
             <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.45" Easing="QuadraticEaseOut" />
           </Transitions>
         </Border.Transitions>
-        <Image x:Name="CoverImage" Stretch="UniformToFill">
-          <Image.Transitions>
-            <Transitions>
-              <DoubleTransition Property="Width" Duration="0:0:0.45" Easing="QuadraticEaseOut" />
-              <DoubleTransition Property="Height" Duration="0:0:0.45" Easing="QuadraticEaseOut" />
-            </Transitions>
-          </Image.Transitions>
-        </Image>
+        <Image x:Name="CoverImage" Stretch="UniformToFill" />
       </Border>
 
       <!-- 歌名/歌手独立覆盖层：切歌动画期间在封面下方显示，淡入淡出、不跟随封面动画路径 -->
