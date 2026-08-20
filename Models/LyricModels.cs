@@ -1,7 +1,21 @@
 namespace EasyDesktopLyrics.Models;
 
-/// <summary>一个逐字（卡拉 OK）歌词字：从该时间戳起演唱该字。</summary>
-public sealed record LyricWord(long TimeMs, string Text);
+/// <summary>
+/// 一个逐字（卡拉 OK）歌词片段。DurationMs 为空表示源只提供了起始时间，需要由时间轴生成器推算结束时间。
+/// </summary>
+public sealed record LyricWord(long TimeMs, string Text, long? DurationMs = null)
+{
+    public long? EndMs => DurationMs is > 0 ? TimeMs + DurationMs.Value : null;
+}
+
+/// <summary>逐字歌词中的一行，保留源提供的行起点、可选持续时间以及字/词片段。</summary>
+public sealed record LyricWordLine(
+    long TimeMs,
+    IReadOnlyList<LyricWord> Words,
+    long? DurationMs = null)
+{
+    public long? EndMs => DurationMs is > 0 ? TimeMs + DurationMs.Value : null;
+}
 
 /// <summary>一个字符的时间区间（Index = 在 line.Text 中的字符偏移；多字词按字均分后得到）。</summary>
 public sealed record LyricCharTime(int Index, long StartMs, long EndMs);
@@ -12,7 +26,11 @@ public sealed record LyricLine(
     string Text,
     string? Translation,
     IReadOnlyList<LyricWord>? Words = null,
-    IReadOnlyList<LyricCharTime>? CharTimes = null);
+    IReadOnlyList<LyricCharTime>? CharTimes = null,
+    long? DurationMs = null)
+{
+    public long? EndMs => DurationMs is > 0 ? TimeMs + DurationMs.Value : null;
+}
 
 /// <summary>解析后的整首歌词，行按时间升序。</summary>
 public sealed class LyricDocument

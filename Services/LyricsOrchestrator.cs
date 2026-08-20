@@ -357,76 +357,15 @@ public sealed partial class LyricsOrchestrator
 
         var content = texts.Where(t => !MetaInfoPattern().IsMatch(t)).ToList();
         if (content.Count > 0 && !content.All(t => InstrumentalPattern().IsMatch(t)))
-            return AssignCharTimes(doc); // 正常歌词
+            return LyricsTimelineBuilder.AssignCharacterTimings(doc); // 正常歌词
 
         // 纯音乐：保留元信息行供短暂显示
         var meta = doc.Lines
             .Where(l => l.Text.Length > 0 && MetaInfoPattern().IsMatch(l.Text))
             .ToList();
         return meta.Count > 0
-            ? AssignCharTimes(new LyricDocument(meta, isInstrumental: true))
+            ? LyricsTimelineBuilder.AssignCharacterTimings(new LyricDocument(meta, isInstrumental: true))
             : null;
-    }
-
-    /// <summary>为每行填充逐字符时间轴（CharTimes）：多字词按字均分持续时间，无逐字词的行保持 null（整行高亮）。</summary>
-    private static LyricDocument AssignCharTimes(LyricDocument doc)
-    {
-        var lines = doc.Lines.ToList();
-        for (var i = 0; i < lines.Count; i++)
-        {
-            var l = lines[i];
-            if (l.Words is not { Count: > 0 } || l.Text.Length == 0)
-                continue;
-            var nextLineStart = i + 1 < lines.Count ? lines[i + 1].TimeMs : long.MaxValue;
-            var charTimes = BuildCharTimes(l, nextLineStart);
-            if (charTimes != null)
-                lines[i] = l with { CharTimes = charTimes };
-        }
-        return new LyricDocument(lines, doc.IsInstrumental);
-    }
-
-    /// <summary>
-    /// 逐字符时间轴：words 按序覆盖 line.Text 的字符区间；字时长 = 词持续（下一词起始 − 本词起始）÷ 字数，
-    /// 末词用 3 秒兜底（不越过下一行起始）。词文本与行文本对齐失败时 clamp 并兜底，保证索引不越界。
-    /// </summary>
-    private static IReadOnlyList<LyricCharTime>? BuildCharTimes(LyricLine line, long nextLineStart)
-    {
-        var text = line.Text;
-        var words = line.Words!;
-        var times = new List<LyricCharTime>(text.Length);
-        var offset = 0;
-        for (var w = 0; w < words.Count; w++)
-        {
-            var word = words[w];
-            var len = Math.Min(word.Text.Length, text.Length - offset);
-            if (len <= 0)
-            {
-                offset += word.Text.Length;
-                continue;
-            }
-            var wordStart = word.TimeMs;
-            var wordEnd = w + 1 < words.Count
-                ? words[w + 1].TimeMs
-                : Math.Min(word.TimeMs + 3000, nextLineStart);
-            if (wordEnd <= wordStart)
-                wordEnd = wordStart + 1;
-            for (var k = 0; k < len; k++)
-            {
-                var start = wordStart + (long)((wordEnd - wordStart) * (double)k / len);
-                var end = wordStart + (long)((wordEnd - wordStart) * (double)(k + 1) / len);
-                times.Add(new LyricCharTime(offset + k, start, end));
-            }
-            offset += len;
-        }
-        // 行内未被词覆盖的零散字符（对齐差异兜底）：视为随整行演唱
-        if (offset < text.Length)
-        {
-            var tailStart = times.Count > 0 ? times[^1].EndMs : line.TimeMs;
-            var tailEnd = nextLineStart == long.MaxValue ? tailStart + 3000 : Math.Max(nextLineStart, tailStart + 1);
-            for (var i = offset; i < text.Length; i++)
-                times.Add(new LyricCharTime(i, tailStart, tailEnd));
-        }
-        return times.Count > 0 ? times : null;
     }
 
     /// <summary>
@@ -434,7 +373,7 @@ public sealed partial class LyricsOrchestrator
     /// 匹配率 ≥60% 才视为整首有效（否则整体回退整行高亮）。
     /// </summary>
     private static LyricDocument MergeWordLines(
-        LyricDocument doc, IReadOnlyList<(long TimeMs, IReadOnlyList<LyricWord> Words)> wordLines)
+        LyricDocument doc, IReadOnlyList<LyricWordLine> wordLines)
     {
         if (wordLines.Count == 0)
             return doc;
@@ -445,18 +384,21 @@ public sealed partial class LyricsOrchestrator
         {
             var l = lines[i];
             long bestDelta = long.MaxValue;
-            IReadOnlyList<LyricWord>? best = null;
+            LyricWordLine? best = null;
             foreach (var wl in wordLines)
             {
                 var d = Math.Abs(wl.TimeMs - l.TimeMs);
                 if (d >= bestDelta)
                     continue;
                 bestDelta = d;
-                best = wl.Words;
+                best = wl;
             }
             if (best != null && bestDelta < 800)
             {
-                lines[i] = l with { Words = best };
+                long? duration = best.EndMs.HasValue
+                    ? Math.Max(best.EndMs.Value - l.TimeMs, 1)
+                    : null;
+                lines[i] = l with { Words = best.Words, DurationMs = duration };
                 matched++;
             }
         }

@@ -35,11 +35,11 @@ public static partial class LrcParser
     /// 解析逐字歌词：支持两种格式（自动识别）——
     /// 1. 增强 LRC / klyric：行首 [mm:ss.xx] + &lt;ts&gt;字 序列；
     /// 2. yrc：行头 [开始ms,持续ms] + (字开始ms,持续ms,0)字 序列（含 JSON 元数据行，跳过）。
-    /// 返回按行时间升序的 (行时间, 字序列)。
+    /// 返回按行时间升序的逐字行，并保留源中存在的行/字持续时间。
     /// </summary>
-    public static IReadOnlyList<(long TimeMs, IReadOnlyList<LyricWord> Words)> ParseWordLines(string? wordLrc)
+    public static IReadOnlyList<LyricWordLine> ParseWordLines(string? wordLrc)
     {
-        var result = new List<(long TimeMs, IReadOnlyList<LyricWord> Words)>();
+        var result = new List<LyricWordLine>();
         if (string.IsNullOrWhiteSpace(wordLrc))
             return result;
 
@@ -51,11 +51,13 @@ public static partial class LrcParser
 
             // yrc 格式（行头 [ms,ms]）
             var ym = YrcLineTag().Match(line);
-            if (ym.Success && ym.Index == 0 && long.TryParse(ym.Groups[1].Value, out var yStart))
+            if (ym.Success && ym.Index == 0
+                && long.TryParse(ym.Groups[1].Value, out var yStart)
+                && long.TryParse(ym.Groups[2].Value, out var yDuration))
             {
                 var yrcWords = ParseYrcWordsInLine(ym.Groups[3].Value);
                 if (yrcWords.Count > 0)
-                    result.Add((yStart, yrcWords));
+                    result.Add(new LyricWordLine(yStart, yrcWords, PositiveDuration(yDuration)));
                 continue;
             }
 
@@ -78,7 +80,7 @@ public static partial class LrcParser
             var content = line[end..];
             var words = ParseWordsInLine(content, stamps[0]);
             if (words.Count > 0)
-                result.Add((stamps[0], words));
+                result.Add(new LyricWordLine(stamps[0], words));
         }
 
         return result.OrderBy(x => x.TimeMs).ToList();
@@ -95,17 +97,20 @@ public static partial class LrcParser
             if (!tag.Success)
                 break;
             var start = long.Parse(tag.Groups[1].Value);
+            var duration = long.Parse(tag.Groups[2].Value);
             var textEnd = index + tag.Length;
             var next = YrcWordTag().Match(content, textEnd);
             var textLen = next.Success ? next.Index - textEnd : content.Length - textEnd;
             var text = content[textEnd..(textEnd + textLen)].Trim();
             if (text.Length > 0)
-                words.Add(new LyricWord(start, text));
+                words.Add(new LyricWord(start, text, PositiveDuration(duration)));
             // 下一个 tag 起点（tag 后跟随字文本，须跳过）
             index = next.Success ? next.Index : content.Length;
         }
         return words;
     }
+
+    private static long? PositiveDuration(long durationMs) => durationMs > 0 ? durationMs : null;
 
     /// <summary>把行内容切分为字序列；行首无标签的文本归属行起始时间。</summary>
     private static List<LyricWord> ParseWordsInLine(string content, long lineTime)
