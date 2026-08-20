@@ -11,19 +11,15 @@ using Avalonia.Threading;
 using EasyDesktopLyrics.Interop;
 using EasyDesktopLyrics.Infrastructure;
 using EasyDesktopLyrics.Models;
+using EasyDesktopLyrics.Rendering.Animation;
 using EasyDesktopLyrics.Services;
 using EasyDesktopLyrics.ViewModels;
+using EasyDesktopLyrics.Views.Lyrics;
 
 namespace EasyDesktopLyrics.Views;
 
 public sealed partial class LyricsOverlayWindow : Window
 {
-    private static readonly (double dx, double dy)[] StrokeOffsets =
-    {
-        (0, -1), (0, 1), (-1, 0), (1, 0),
-        (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7),
-    };
-
     private readonly OverlayViewModel _vm;
     private readonly SettingsService _settingsService;
     private readonly BackgroundFxLayer _bgFx;
@@ -31,7 +27,7 @@ public sealed partial class LyricsOverlayWindow : Window
     private readonly DispatcherTimer _hideControlsTimer;
     private readonly DispatcherTimer _coverStageTimer;
     private readonly DispatcherTimer _coverTimeoutTimer;
-    private readonly DispatcherTimer _lineAnimTimer;
+    private readonly AnimationProgressDriver _lineAnimation = new(TimeSpan.FromMilliseconds(16));
     private readonly UiDebouncer _anchorDebouncer = new();
     private readonly UiDebouncer _initialAnchorDebouncer = new();
 
@@ -56,22 +52,19 @@ public sealed partial class LyricsOverlayWindow : Window
     private bool _lastCoverTitleEnabled;
     private IImage? _lastCoverImage;
 
-    // 动态文本层
-    private Grid _mainGrid = null!;
-    private LyricText _inactiveLyric = null!;
-    private LyricText _mainLyric = null!;
-    private Grid _transGrid = null!;
-    private TextBlock _transTb = null!;
-    private readonly List<TextBlock> _strokeLayers = [];
-    private readonly List<Control> _glowLayers = [];
+    // 当前视觉模式提供稳定的歌词层；窗口只消费这些锚点，不再负责构建描边/辉光树。
+    private ILyricVisualMode _lyricVisualMode = null!;
+    private Grid _mainGrid => _lyricVisualMode.MainHost;
+    private LyricText _inactiveLyric => _lyricVisualMode.InactiveLyric;
+    private LyricText _mainLyric => _lyricVisualMode.ActiveLyric;
+    private Grid _transGrid => _lyricVisualMode.TranslationHost;
+    private TextBlock _transTb => _lyricVisualMode.TranslationText;
+    private LyricText? _mainGlowLyric => _lyricVisualMode.ActiveGlowLyric;
+    private LyricText? _inactiveGlowLyric => _lyricVisualMode.InactiveGlowLyric;
 
     // 行间切换动效状态
     private string _lineAnimKind = "";
-    private DateTimeOffset _lineAnimStart;
-    private int _lineAnimToken;
     private bool _revealHidingInactive;
-    private LyricText? _mainGlowLyric;
-    private LyricText? _inactiveGlowLyric;
     private LyricText? _shineLayer;
     private string _lastMainText = "";
     private string _lastTransText = "";
@@ -133,9 +126,6 @@ public sealed partial class LyricsOverlayWindow : Window
 
         _coverStageTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
         _coverStageTimer.Tick += (_, _) => OnCoverStage();
-
-        _lineAnimTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
-        _lineAnimTimer.Tick += (_, _) => OnLineAnimTick();
 
         _coverTimeoutTimer = new DispatcherTimer { Interval = CoverAnimTimeout };
         _coverTimeoutTimer.Tick += (_, _) => OnCoverStage();
@@ -241,206 +231,9 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private void BuildTextLayers()
     {
-        RootPanel.Children.Clear();
-        _strokeLayers.Clear();
-
-        _mainGrid = new Grid();
-        // 未唱层（下）：整行未唱色 + 独立未唱描边 + 阴影；逐字明暗差不被描边抹平
-        _inactiveLyric = new LyricText();
-        BindInactiveLyric(_inactiveLyric);
-        _mainGrid.Children.Add(_inactiveLyric);
-        // 已唱层（上）：已唱段实色、未唱段透明（透出下层），已唱描边
-        _mainLyric = new LyricText();
-        BindLyric(_mainLyric);
-        _mainGrid.Children.Add(_mainLyric);
-        RootPanel.Children.Add(_mainGrid);
-
-        _transGrid = new Grid();
-        _transTb = CreateBoundTb("TransText");
-        _transGrid.Children.Add(_transTb);
-        RootPanel.Children.Add(_transGrid);
-
-        ApplyStroke();
-        ApplyGlow();
+        var registry = LyricVisualModeRegistry.CreateDefault();
+        _lyricVisualMode = registry.Create(LyricVisualModeIds.Classic, _vm, RootPanel);
         ApplyAlignment();
-        SyncAllBindings();
-    }
-
-    /// <summary>已唱层：整行已唱色布局，逐字渐变遮罩只露已唱段（含正在唱字渐变带）；阴影作用于整行。</summary>
-    private void BindLyric(LyricText lt)
-    {
-        BindLyricBase(lt);
-        lt.Bind(LyricText.HighlightLengthProperty, new Avalonia.Data.Binding("WordHighlightLength"));
-        lt.Bind(LyricText.FillProperty, new Avalonia.Data.Binding("Fill"));
-        lt.Bind(LyricText.StrokeEnabledProperty, new Avalonia.Data.Binding("StrokeEnabled"));
-        lt.Bind(LyricText.StrokeBrushProperty, new Avalonia.Data.Binding("StrokeBrush"));
-        lt.Bind(LyricText.StrokeThicknessProperty, new Avalonia.Data.Binding("StrokeThickness"));
-        lt.Bind(Visual.EffectProperty, new Avalonia.Data.Binding("TextEffect"));
-        lt.HighlightClip = LyricText.ClipSideMode.Left;
-    }
-
-    /// <summary>未唱层：整行未唱色布局 + 独立未唱描边，逐字渐变遮罩只露未唱段；阴影作用于整行。</summary>
-    private void BindInactiveLyric(LyricText lt)
-    {
-        BindLyricBase(lt);
-        lt.Bind(LyricText.HighlightLengthProperty, new Avalonia.Data.Binding("WordHighlightLength"));
-        lt.Bind(LyricText.FillProperty, new Avalonia.Data.Binding("InactiveFill"));
-        lt.Bind(LyricText.StrokeEnabledProperty, new Avalonia.Data.Binding("InactiveStrokeEnabled"));
-        lt.Bind(LyricText.StrokeBrushProperty, new Avalonia.Data.Binding("InactiveStrokeBrush"));
-        lt.Bind(LyricText.StrokeThicknessProperty, new Avalonia.Data.Binding("InactiveStrokeThickness"));
-        lt.Bind(Visual.EffectProperty, new Avalonia.Data.Binding("TextEffect"));
-        lt.HighlightClip = LyricText.ClipSideMode.Right;
-    }
-
-    private static void BindLyricBase(LyricText lt)
-    {
-        lt.Bind(LyricText.TextProperty, new Avalonia.Data.Binding("MainText"));
-        lt.Bind(LyricText.FontFamilyProperty, new Avalonia.Data.Binding("FontFamilyValue"));
-        lt.Bind(LyricText.FontWeightProperty, new Avalonia.Data.Binding("WeightValue"));
-        lt.Bind(LyricText.FontSizeProperty, new Avalonia.Data.Binding("MainFontSize"));
-        lt.Bind(LyricText.TextAlignmentProperty, new Avalonia.Data.Binding("TextAlignment"));
-        lt.Bind(LyricText.OpacityProperty, new Avalonia.Data.Binding("TextOpacity"));
-        lt.Bind(LyricText.HighlightFractionProperty, new Avalonia.Data.Binding("WordHighlightFraction"));
-    }
-
-    private TextBlock CreateBoundTb(string textProp)
-    {
-        var tb = new TextBlock();
-        BindTb(tb, textProp);
-        return tb;
-    }
-
-    private void BindTb(TextBlock tb, string textProp)
-    {
-        tb.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(textProp));
-        tb.Bind(TextBlock.FontFamilyProperty, new Avalonia.Data.Binding("FontFamilyValue"));
-        tb.Bind(TextBlock.FontWeightProperty, new Avalonia.Data.Binding("WeightValue"));
-        tb.Bind(TextBlock.EffectProperty, new Avalonia.Data.Binding("TextEffect"));
-    }
-
-    private void SyncAllBindings()
-    {
-        SyncTb(_transTb, "EffectiveTransFontSize", "Fill", "TextOpacity");
-        _transTb.Bind(TextBlock.IsVisibleProperty, new Avalonia.Data.Binding("ShowTransLine"));
-
-        foreach (var s in _strokeLayers)
-        {
-            SyncTb(s, "EffectiveTransFontSize", null, "TextOpacity");
-            s.Bind(TextBlock.ForegroundProperty, new Avalonia.Data.Binding("StrokeBrush"));
-        }
-    }
-
-    private void SyncTb(TextBlock tb, string sizeProp, string? fillProp, string opacityProp)
-    {
-        tb.Bind(TextBlock.FontSizeProperty, new Avalonia.Data.Binding(sizeProp));
-        if (fillProp != null)
-            tb.Bind(TextBlock.ForegroundProperty, new Avalonia.Data.Binding(fillProp));
-        tb.Bind(TextBlock.OpacityProperty, new Avalonia.Data.Binding(opacityProp));
-    }
-
-    /// <summary>描边层（仅翻译行；主行描边由自绘控件内部处理）。</summary>
-    private void ApplyStroke()
-    {
-        foreach (var s in _strokeLayers)
-        {
-            _transGrid.Children.Remove(s);
-        }
-        _strokeLayers.Clear();
-
-        if (!_vm.StrokeEnabled || _vm.StrokeThickness <= 0) return;
-
-        double t = _vm.StrokeThickness;
-        foreach (var (dx, dy) in StrokeOffsets)
-        {
-            var st = new TextBlock
-            {
-                RenderTransform = new TranslateTransform(dx * t, dy * t),
-            };
-            BindTb(st, "TransText");
-            st.Bind(TextBlock.ForegroundProperty, new Avalonia.Data.Binding("StrokeBrush"));
-            st.Bind(TextBlock.FontSizeProperty, new Avalonia.Data.Binding("EffectiveTransFontSize"));
-            st.Bind(TextBlock.OpacityProperty, new Avalonia.Data.Binding("TextOpacity"));
-            st.Bind(TextBlock.IsVisibleProperty, new Avalonia.Data.Binding("ShowTransLine"));
-            _transGrid.Children.Insert(0, st);
-            _strokeLayers.Add(st);
-        }
-        ApplyAlignment();
-    }
-
-    /// <summary>辉光层：大模糊半径的彩色光晕副本，位于描边层之下。
-    /// 主行辉光按逐字分段（未唱段透明，光晕只照亮已唱段）；未唱辉光为独立可选项。</summary>
-    private void ApplyGlow()
-    {
-        _mainGlowLyric = null;
-        _inactiveGlowLyric = null;
-        foreach (var s in _glowLayers)
-        {
-            _mainGrid.Children.Remove(s);
-            _transGrid.Children.Remove(s);
-        }
-        _glowLayers.Clear();
-
-        // 未唱辉光层（整行未唱色 + 未唱辉光，渐变遮罩只露未唱段；默认关）
-        if (_vm.InactiveGlowEnabled)
-        {
-            var ig = CreateMainGlowLyric(null);
-            ig.Bind(LyricText.HighlightLengthProperty, new Avalonia.Data.Binding("WordHighlightLength"));
-            ig.Bind(LyricText.HighlightFractionProperty, new Avalonia.Data.Binding("WordHighlightFraction"));
-            ig.Bind(LyricText.FillProperty, new Avalonia.Data.Binding("InactiveFill"));
-            ig.Bind(Visual.EffectProperty, new Avalonia.Data.Binding("InactiveGlowEffect"));
-            ig.HighlightClip = LyricText.ClipSideMode.Right;
-            _mainGrid.Children.Insert(0, ig);
-            _glowLayers.Add(ig);
-            _inactiveGlowLyric = ig;
-        }
-
-        if (_vm.GlowEnabled)
-        {
-            // 主行已唱辉光：渐变遮罩只露已唱段 → DropShadowEffect 只照亮已唱段（含正在唱字渐变部分）
-            var gm = CreateMainGlowLyric("Fill");
-            gm.Bind(LyricText.HighlightLengthProperty, new Avalonia.Data.Binding("WordHighlightLength"));
-            gm.Bind(LyricText.HighlightFractionProperty, new Avalonia.Data.Binding("WordHighlightFraction"));
-            gm.Bind(Visual.EffectProperty, new Avalonia.Data.Binding("GlowEffect"));
-            gm.HighlightClip = LyricText.ClipSideMode.Left;
-            _mainGrid.Children.Insert(0, gm);
-            _glowLayers.Add(gm);
-            _mainGlowLyric = gm;
-
-            var gt = CreateGlowLayer("TransText", "EffectiveTransFontSize");
-            gt.Bind(TextBlock.IsVisibleProperty, new Avalonia.Data.Binding("ShowTransLine"));
-            _transGrid.Children.Insert(0, gt);
-            _glowLayers.Add(gt);
-        }
-
-        ApplyAlignment();
-    }
-
-    /// <summary>主行辉光副本（自绘分段，可绑定未唱段透明）；fillProp=null 时不绑定 Fill（由调用方自行分段）。</summary>
-    private static LyricText CreateMainGlowLyric(string? fillProp)
-    {
-        var lt = new LyricText();
-        lt.Bind(LyricText.TextProperty, new Avalonia.Data.Binding("MainText"));
-        lt.Bind(LyricText.FontFamilyProperty, new Avalonia.Data.Binding("FontFamilyValue"));
-        lt.Bind(LyricText.FontWeightProperty, new Avalonia.Data.Binding("WeightValue"));
-        lt.Bind(LyricText.FontSizeProperty, new Avalonia.Data.Binding("MainFontSize"));
-        lt.Bind(LyricText.TextAlignmentProperty, new Avalonia.Data.Binding("TextAlignment"));
-        lt.Bind(LyricText.OpacityProperty, new Avalonia.Data.Binding("TextOpacity"));
-        if (fillProp != null)
-            lt.Bind(LyricText.FillProperty, new Avalonia.Data.Binding(fillProp));
-        return lt;
-    }
-
-    private static TextBlock CreateGlowLayer(string textProp, string sizeProp)
-    {
-        var tb = new TextBlock();
-        tb.Bind(TextBlock.TextProperty, new Avalonia.Data.Binding(textProp));
-        tb.Bind(TextBlock.FontFamilyProperty, new Avalonia.Data.Binding("FontFamilyValue"));
-        tb.Bind(TextBlock.FontWeightProperty, new Avalonia.Data.Binding("WeightValue"));
-        tb.Bind(TextBlock.FontSizeProperty, new Avalonia.Data.Binding(sizeProp));
-        tb.Bind(TextBlock.ForegroundProperty, new Avalonia.Data.Binding("Fill"));
-        tb.Bind(TextBlock.OpacityProperty, new Avalonia.Data.Binding("TextOpacity"));
-        tb.Bind(TextBlock.EffectProperty, new Avalonia.Data.Binding("GlowEffect"));
-        return tb;
     }
 
     private void OnVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -495,10 +288,10 @@ public sealed partial class LyricsOverlayWindow : Window
         }
         else if (e.PropertyName is nameof(OverlayViewModel.StrokeEnabled)
                  or nameof(OverlayViewModel.StrokeThickness))
-            ApplyStroke();
+            _lyricVisualMode.RefreshStroke();
         else if (e.PropertyName is nameof(OverlayViewModel.GlowEffect)
                  or nameof(OverlayViewModel.InactiveGlowEffect))
-            ApplyGlow();
+            _lyricVisualMode.RefreshGlow();
         else if (e.PropertyName == nameof(OverlayViewModel.TextAlignment))
             ApplyAlignment();
         else if (e.PropertyName == nameof(OverlayViewModel.CoverTitleEnabled))
@@ -733,7 +526,7 @@ public sealed partial class LyricsOverlayWindow : Window
             StartSlideBlur(durMs);
     }
 
-    /// <summary>位移淡入入场模糊：给主行/翻译行网格挂 BlurEffect，由 _lineAnimTimer 驱动半径衰减到 0。</summary>
+    /// <summary>位移淡入入场模糊：给主行/翻译行网格挂 BlurEffect，由统一进度驱动器衰减到 0。</summary>
     private void StartSlideBlur(int durMs)
     {
         var radius = Math.Clamp(_settingsService.Current.LineTransitionSlideBlurRadius, 0, 20);
@@ -742,11 +535,7 @@ public sealed partial class LyricsOverlayWindow : Window
         _mainGrid.Effect = new BlurEffect { Radius = radius };
         _transGrid.Effect = new BlurEffect { Radius = radius };
 
-        _lineAnimTimer.Stop();
-        _lineAnimKind = "SlideBlur";
-        _lineAnimStart = DateTimeOffset.UtcNow;
-        _lineAnimToken++;
-        _lineAnimTimer.Start();
+        StartLineProgressAnimation("SlideBlur", durMs);
     }
 
     /// <summary>取消入场模糊：移除网格上的模糊效果。</summary>
@@ -860,20 +649,14 @@ public sealed partial class LyricsOverlayWindow : Window
     /// </summary>
     private void PlayReveal(int durMs)
     {
-        _lineAnimTimer.Stop();
-        _lineAnimKind = "Reveal";
-        _lineAnimStart = DateTimeOffset.UtcNow;
-        _lineAnimToken++;
-
         _revealHidingInactive = true;
         _inactiveLyric.IsVisible = false;
         if (_inactiveGlowLyric != null)
             _inactiveGlowLyric.IsVisible = false;
 
-        ApplyEnterProgress(0);
         AnimateLineHost(_transGrid, TransformOperations.Identity,
             TimeSpan.FromMilliseconds(durMs), EasingFor(_settingsService.Current.LineTransitionEasing));
-        _lineAnimTimer.Start();
+        StartLineProgressAnimation("Reveal", durMs);
     }
 
     /// <summary>
@@ -884,18 +667,12 @@ public sealed partial class LyricsOverlayWindow : Window
     {
         EnsureShineLayer();
 
-        _lineAnimTimer.Stop();
-        _lineAnimKind = "Shine";
-        _lineAnimStart = DateTimeOffset.UtcNow;
-        _lineAnimToken++;
-
         _mainGrid.Transitions = null;
         _mainGrid.Opacity = 0.35;
-        ApplyShineProgress(0);
         PositionShineLayer();
         AnimateLineHost(_transGrid, TransformOperations.Identity,
             TimeSpan.FromMilliseconds(durMs), EasingFor(_settingsService.Current.LineTransitionEasing));
-        _lineAnimTimer.Start();
+        StartLineProgressAnimation("Shine", durMs);
     }
 
     private void EnsureShineLayer()
@@ -937,32 +714,27 @@ public sealed partial class LyricsOverlayWindow : Window
             _shineLayer.ShineProgress = p;
     }
 
-    private void OnLineAnimTick()
+    private void StartLineProgressAnimation(string kind, int durationMs)
     {
-        var token = _lineAnimToken;
-        var durMs = Math.Clamp(_settingsService.Current.LineTransitionDurationMs, 50, 1500);
-        var p = Math.Clamp((DateTimeOffset.UtcNow - _lineAnimStart).TotalMilliseconds / durMs, 0, 1);
+        _lineAnimKind = kind;
+        var duration = TimeSpan.FromMilliseconds(Math.Clamp(durationMs, 50, 1500));
+        _lineAnimation.Start(duration, ApplyLineAnimationProgress, FinishLineAnimation);
+    }
 
+    private void ApplyLineAnimationProgress(double p)
+    {
         switch (_lineAnimKind)
         {
             case "Reveal": ApplyEnterProgress(p); break;
             case "Shine": ApplyShineProgress(p); break;
             case "SlideBlur":
-            {
-                var r = Math.Clamp(_settingsService.Current.LineTransitionSlideBlurRadius, 0, 20);
-                var blur = r * (1 - p);
-                if (_mainGrid.Effect is BlurEffect mb) mb.Radius = blur;
-                if (_transGrid.Effect is BlurEffect tb) tb.Radius = blur;
-                break;
-            }
-        }
-
-        if (p >= 1)
-        {
-            _lineAnimTimer.Stop();
-            if (token != _lineAnimToken)
-                return;
-            FinishLineAnimation();
+                {
+                    var r = Math.Clamp(_settingsService.Current.LineTransitionSlideBlurRadius, 0, 20);
+                    var blur = r * (1 - p);
+                    if (_mainGrid.Effect is BlurEffect mb) mb.Radius = blur;
+                    if (_transGrid.Effect is BlurEffect tb) tb.Radius = blur;
+                    break;
+                }
         }
     }
 
@@ -1026,8 +798,7 @@ public sealed partial class LyricsOverlayWindow : Window
     /// <summary>中断行间动效（新行到来/开关关闭/异常回退）：停表、清理逐字/扫光临时层并恢复隐藏层。</summary>
     private void CancelLineAnimation()
     {
-        _lineAnimToken++;
-        _lineAnimTimer.Stop();
+        _lineAnimation.Cancel();
         _lineAnimKind = "";
 
         _mainLyric.EnterProgress = -1;
@@ -1459,18 +1230,7 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private void ApplyAlignment()
     {
-        var alig = _vm.TextAlignment;
-        var hAlign = LineHorizontalAlignment;
-        _mainLyric.TextAlignment = alig;
-        _mainLyric.HorizontalAlignment = hAlign;
-        _inactiveLyric.HorizontalAlignment = hAlign;
-        _transTb.TextAlignment = alig;
-        foreach (var s in _strokeLayers) s.TextAlignment = alig;
-        foreach (var s in _glowLayers)
-        {
-            if (s is TextBlock tb) tb.TextAlignment = alig;
-            else if (s is LyricText lt) { lt.TextAlignment = alig; lt.HorizontalAlignment = hAlign; }
-        }
+        _lyricVisualMode.ApplyAlignment(_vm.TextAlignment, LineHorizontalAlignment);
     }
 
     protected override void OnOpened(EventArgs e)
@@ -1509,6 +1269,7 @@ public sealed partial class LyricsOverlayWindow : Window
         _hideControlsTimer.Stop();
         _coverStageTimer.Stop();
         _coverTimeoutTimer.Stop();
+        _lineAnimation.Dispose();
         _settingsService.Changed -= ApplyCoverAnimationStyle;
         _settingsService.Changed -= OnLineTransitionSettingsChanged;
         _vm.LineChanged -= OnLineChanged;
