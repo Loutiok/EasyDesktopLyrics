@@ -29,8 +29,10 @@ public sealed class SpectrumEngine : IDisposable
     private float[] _peakHoldL = new float[DefaultBandCount];
     private float[] _peakHoldR = new float[DefaultBandCount];
     private readonly WasapiLoopbackCapture? _capture;
-    private bool _real;
+    private volatile bool _real;
+    private volatile bool _captureReady;
     private bool _disposed;
+    private long _lastSampleTick;
     private int _sampleRate = 48000;
 
     // 模拟频谱状态
@@ -67,12 +69,13 @@ public sealed class SpectrumEngine : IDisposable
             if (_capture == null)
                 return false;
             var ok = await _capture.StartAsync().ConfigureAwait(false);
-            _real = ok;
-            Log.Info($"spectrum source: {(ok ? "wasapi-loopback" : "simulated")} {(ok ? "" : _capture.Error?.Message ?? "")}");
+            _captureReady = ok;
+            _real = false;
+            Log.Info($"spectrum capture: {(ok ? "wasapi-ready, waiting for samples" : "simulated")} {(ok ? "" : _capture.Error?.Message ?? "")}");
             if (!ok)
                 _capture.DataAvailable -= OnData;
-            SourceChanged?.Invoke(_real);
-            return _real;
+            SourceChanged?.Invoke(false);
+            return ok;
         }
         catch (Exception ex)
         {
@@ -123,6 +126,14 @@ public sealed class SpectrumEngine : IDisposable
     /// <summary>当前帧 L/R 频带快照（长度 = Count，0~1）+ 低音能量。数组为内部复用，须当帧用完。</summary>
     public SpectrumFrame GetFrame()
     {
+        // 端点切换、设备休眠等情况下采集线程可能仍存活却不再产出数据。此时不要让
+        // “真实模式”永久输出零帧；先回退模拟，后续一旦重新收到样本会自动切回真实模式。
+        if (_real && Environment.TickCount64 - Interlocked.Read(ref _lastSampleTick) > 2000)
+        {
+            _real = false;
+            Log.Info("spectrum source: simulated (wasapi samples timed out)");
+            SourceChanged?.Invoke(false);
+        }
         if (_real)
             return ComputeRealFrame();
         return ComputeSimulatedFrame();
@@ -132,13 +143,25 @@ public sealed class SpectrumEngine : IDisposable
 
     private void OnData(float[] stereo)
     {
+        var becameReal = false;
         lock (_lock)
         {
-            if (_disposed || !_real)
+            if (_disposed || !_captureReady || stereo.Length == 0)
                 return;
             _samples.AddRange(stereo);
             if (_samples.Count > FftSize * 4)
                 _samples.RemoveRange(0, _samples.Count - FftSize * 2);
+            Interlocked.Exchange(ref _lastSampleTick, Environment.TickCount64);
+            if (!_real)
+            {
+                _real = true;
+                becameReal = true;
+            }
+        }
+        if (becameReal)
+        {
+            Log.Info("spectrum source: wasapi-loopback (samples received)");
+            SourceChanged?.Invoke(true);
         }
     }
 
@@ -389,6 +412,8 @@ public sealed class SpectrumEngine : IDisposable
             if (_disposed)
                 return;
             _disposed = true;
+            _captureReady = false;
+            _real = false;
         }
         if (_capture != null)
         {

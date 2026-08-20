@@ -25,7 +25,6 @@ public sealed class BackgroundFxLayer : Grid
     private long _lastTick;
     private bool _windowVisible;
     private bool _playing;
-    private bool _spectrumRunning;
 
     public BackgroundFxLayer(SettingsService settings)
     {
@@ -61,7 +60,13 @@ public sealed class BackgroundFxLayer : Grid
     public void SetScreenRect(Func<(int X, int Y, int W, int H)> provider) => _fog.SetScreenRectProvider(provider);
 
     /// <summary>播放状态（频谱引擎驱动）。</summary>
-    public void SetPlaying(bool playing) => _playing = playing;
+    public void SetPlaying(bool playing)
+    {
+        if (_playing == playing)
+            return;
+        _playing = playing;
+        ApplyVisibility();
+    }
 
     private void OnSettingsChanged()
     {
@@ -83,14 +88,15 @@ public sealed class BackgroundFxLayer : Grid
         _snow.IsVisible = _windowVisible && s.Snow.Enabled;
         _fog.IsVisible = _windowVisible && s.Fog.Enabled;
 
-        if (s.Spectrum.Enabled && !_spectrumRunning)
+        // 开机自启时音频端点往往仍处于登录初始化阶段。不要在窗口尚未显示、播放器尚未
+        // 真正播放时抢先绑定 WASAPI；等到首个可见播放状态再启动，避免永久捕获到无数据端点。
+        var shouldStartSpectrum = s.Spectrum.Enabled && _windowVisible && _playing;
+        if (shouldStartSpectrum && !_spectrum.IsRunning)
         {
-            _spectrumRunning = true;
-            _spectrum.Start();
+            _ = _spectrum.StartAsync();
         }
-        else if (!s.Spectrum.Enabled && _spectrumRunning)
+        else if ((!s.Spectrum.Enabled || !_windowVisible) && _spectrum.IsRunning)
         {
-            _spectrumRunning = false;
             _spectrum.Stop();
         }
 

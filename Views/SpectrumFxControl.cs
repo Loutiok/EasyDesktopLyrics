@@ -18,6 +18,7 @@ public sealed class SpectrumFxControl : Control
     private const double CornerRadius = 6;
 
     private SpectrumEngine? _engine;
+    private int _engineGeneration;
     private bool _enabled;
     private int _smoothing = 3;
     private string _style = "Bars";
@@ -66,7 +67,7 @@ public sealed class SpectrumFxControl : Control
         InvalidateVisual();
     }
 
-    public void Start()
+    public async Task StartAsync()
     {
         if (_engine != null)
             return;
@@ -74,11 +75,17 @@ public sealed class SpectrumFxControl : Control
         e.SetSmoothing(_smoothing);
         e.SetBandCount(_bandCount);
         _engine = e;
-        _ = e.StartAsync();
+        var generation = ++_engineGeneration;
+        await e.StartAsync().ConfigureAwait(false);
+
+        // 启动过程中可能已被关闭或重新创建；旧实例不能重新进入活动状态。
+        if (generation != _engineGeneration || !ReferenceEquals(_engine, e))
+            e.Dispose();
     }
 
     public void Stop()
     {
+        _engineGeneration++;
         _engine?.Dispose();
         _engine = null;
     }

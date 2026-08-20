@@ -33,6 +33,7 @@ public sealed class WasapiLoopbackCapture : IDisposable
 
     private Thread? _thread;
     private volatile bool _running;
+    private volatile bool _stopRequested;
     private Exception? _error;
 
     /// <summary>采集线程产出的交错立体声 float 样本块（[L0,R0,L1,R1,...]，[-1,1]）。</summary>
@@ -46,10 +47,16 @@ public sealed class WasapiLoopbackCapture : IDisposable
     /// <summary>在专用线程上初始化环回采集；true = 成功并已开始捕获。</summary>
     public Task<bool> StartAsync()
     {
+        _stopRequested = false;
         var tcs = new TaskCompletionSource<bool>();
         _thread = new Thread(() =>
         {
             var ok = TryInit();
+            if (_stopRequested)
+            {
+                _running = false;
+                ok = false;
+            }
             tcs.TrySetResult(ok);
             if (ok)
                 CaptureLoop();
@@ -65,13 +72,19 @@ public sealed class WasapiLoopbackCapture : IDisposable
 
     public void Stop()
     {
+        _stopRequested = true;
         _running = false;
-        _thread = null;
+        if (_eventHandle != IntPtr.Zero)
+            SetEvent(_eventHandle);
     }
 
     public void Dispose()
     {
         Stop();
+        var thread = _thread;
+        if (thread != null && !ReferenceEquals(Thread.CurrentThread, thread))
+            thread.Join(TimeSpan.FromSeconds(1));
+        _thread = null;
     }
 
     // ---------- 采集线程 ----------
@@ -211,7 +224,7 @@ public sealed class WasapiLoopbackCapture : IDisposable
     {
         try
         {
-            while (_running)
+            while (_running && !_stopRequested)
             {
                 // 事件驱动：等待数据就绪；事件不可用时退化为 10ms 轮询
                 if (_eventHandle != IntPtr.Zero)
@@ -350,6 +363,9 @@ public sealed class WasapiLoopbackCapture : IDisposable
 
     [DllImport("kernel32.dll")]
     private static extern bool ResetEvent(IntPtr hEvent);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool SetEvent(IntPtr hEvent);
 
     [DllImport("kernel32.dll")]
     private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
