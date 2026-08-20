@@ -51,6 +51,7 @@ public sealed partial class LyricsOverlayWindow : Window
     private bool _lastCoverEnabled;
     private double _lastCoverSizePct;
     private bool _lastCoverTitleEnabled;
+    private IImage? _lastCoverImage;
 
     // 动态文本层
     private Grid _mainGrid = null!;
@@ -177,6 +178,7 @@ public sealed partial class LyricsOverlayWindow : Window
         _lastCoverEnabled = _vm.CoverEnabled;
         _lastCoverSizePct = _vm.CoverSizePct;
         _lastCoverTitleEnabled = _vm.CoverTitleEnabled;
+        _lastCoverImage = _vm.CoverImage;
         LyricsArea.MinWidth = _vm.MaxTextWidth;
 
         ApplyCoverAnimationStyle();
@@ -451,10 +453,17 @@ public sealed partial class LyricsOverlayWindow : Window
             OnCoverChanged();
         else if (e.PropertyName == nameof(OverlayViewModel.CoverImage))
         {
+            if (ReferenceEquals(_lastCoverImage, _vm.CoverImage))
+                return;
+            _lastCoverImage = _vm.CoverImage;
             // 封面内容刷新（同歌重取等），不重放切歌动画
-            if (_vm.CoverImage != null)
-                CoverImage.Source = _vm.CoverImage;
+            CoverImage.Source = _vm.CoverImage;
             _bgFx.SetCoverImage(_vm.CoverImage);
+            if (!_coverAnimating)
+            {
+                UpdateCoverSize();
+                ApplyCoverRestingState(immediate: true);
+            }
         }
         else if (e.PropertyName == nameof(OverlayViewModel.MaxTextWidth))
         {
@@ -470,6 +479,7 @@ public sealed partial class LyricsOverlayWindow : Window
             _lastCoverEnabled = _vm.CoverEnabled;
             ApplyCoverLayout();
             UpdateCoverSize();
+            ApplyCoverRestingState(immediate: true);
         }
         else if (e.PropertyName == nameof(OverlayViewModel.CoverSizePct))
         {
@@ -1220,22 +1230,10 @@ public sealed partial class LyricsOverlayWindow : Window
             return;
         }
 
-        // 非手动切歌：直接定位
+        // 非动画切歌：统一应用静止状态
         _coverAnimating = false;
-        SetLyricsOpacity(1);
         ExitCoverTitle();
-        if (_vm.CoverEnabled)
-        {
-            var target = CoverSlotOffset();
-            Cover.RenderTransform = Translate(target.X, target.Y);
-            CoverImage.Width = _coverSize;
-            CoverImage.Height = _coverSize;
-            Cover.Opacity = 1;
-        }
-        else
-        {
-            Cover.Opacity = 0;
-        }
+        ApplyCoverRestingState(immediate: true);
     }
 
     /// <summary>歌词加载完成（Ready/NoLyric）→ 动画进入结束阶段；未达到最短时长则等待补齐。</summary>
@@ -1376,6 +1374,51 @@ public sealed partial class LyricsOverlayWindow : Window
     }
 
     /// <summary>
+    /// 应用非切歌动画期间的封面静止状态。设置页开关、封面数据刷新和普通曲目绑定都走这里，
+    /// 避免只扩大占位列却没有把现有封面设为可见。immediate=true 时禁用过渡，防止设置切换
+    /// 从上一次动画残留位置滑入。
+    /// </summary>
+    private void ApplyCoverRestingState(bool immediate)
+    {
+        if (_coverAnimating)
+            return;
+
+        var coverTransitions = Cover.Transitions;
+        var imageTransitions = CoverImage.Transitions;
+        if (immediate)
+        {
+            Cover.Transitions = null;
+            CoverImage.Transitions = null;
+        }
+
+        try
+        {
+            SetLyricsOpacity(1);
+            if (_vm.CoverEnabled && _vm.CoverImage != null)
+            {
+                CoverImage.Source = _vm.CoverImage;
+                CoverImage.Width = _coverSize;
+                CoverImage.Height = _coverSize;
+                var target = CoverSlotOffset();
+                Cover.RenderTransform = Translate(target.X, target.Y);
+                Cover.Opacity = 1;
+            }
+            else
+            {
+                Cover.Opacity = 0;
+            }
+        }
+        finally
+        {
+            if (immediate)
+            {
+                Cover.Transitions = coverTransitions;
+                CoverImage.Transitions = imageTransitions;
+            }
+        }
+    }
+
+    /// <summary>
     /// 封面尺寸 = 主歌词行实际高度 × 占比（正方形）。
     /// 基准行高只受字号等设置控制（行文本长度变化不影响行高），设置变化时由 SizeChanged 驱动。
     /// </summary>
@@ -1387,7 +1430,7 @@ public sealed partial class LyricsOverlayWindow : Window
         if (baseH <= 0)
             baseH = 40;
         _coverSize = Math.Max(0, baseH * _vm.CoverSizePct / 100.0);
-        var w = _vm.CoverEnabled ? _coverSize : 0;
+        var w = _vm.CoverEnabled && _vm.CoverImage != null ? _coverSize : 0;
         CoverSlot.Width = w;
         CoverSlot.Height = w;
         RightPad.Width = w;
