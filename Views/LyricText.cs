@@ -491,10 +491,15 @@ public sealed class LyricText : Control
         string text, Typeface typeface, IBrush? foreground, TextAlignment alignment,
         TextWrapping wrapping, double maxWidth, double maxHeight)
     {
+        // TextLayout 的默认行高会随实际字形及回退字体变化。同一字号在拉丁、日文和特殊符号间
+        // 切换时可能相差约 1 DIP，进而让透明窗口在切歌前后产生肉眼可见的两像素抖动。
+        // 使用只由字号决定并对齐到半 DIP 的固定行高，使测量结果与文本内容无关。
+        var lineHeight = Math.Ceiling(FontSize * 1.4 * 2) / 2;
         return new TextLayout(text, typeface, FontSize, foreground,
             textAlignment: alignment,
             textWrapping: wrapping,
             maxWidth: maxWidth,
-            maxHeight: maxHeight);
+            maxHeight: maxHeight,
+            lineHeight: lineHeight);
     }
 }
