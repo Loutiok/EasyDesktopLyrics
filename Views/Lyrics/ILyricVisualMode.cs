@@ -18,6 +18,8 @@ internal interface ILyricVisualMode
     TextBlock TranslationText { get; }
     LyricText? ActiveGlowLyric { get; }
     LyricText? InactiveGlowLyric { get; }
+    IReadOnlyList<LyricText> ActiveGlowLyrics { get; }
+    IReadOnlyList<LyricText> InactiveGlowLyrics { get; }
 
     void RefreshStroke();
     void RefreshGlow();

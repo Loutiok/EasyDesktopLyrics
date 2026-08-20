@@ -333,6 +333,10 @@ public sealed class SmtcService : IDisposable
         _current = t;
         Log.Info(t == null ? "track: <none>" : $"track: {t.Artist} - {t.Title} [{t.SourceAumid}] {t.DurationMs}ms");
         TrackChanged?.Invoke(t);
+
+        // TrackChanged 会重置歌词侧插值时钟；媒体属性又经过 300ms 去抖，
+        // 因此必须在同一轮发布后补发最新时间线，不能等播放器下一次偶发事件。
+        PushPlayback();
     }
 
     private void PushPlayback()

@@ -61,6 +61,11 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
     public TextBlock TranslationText { get; }
     public LyricText? ActiveGlowLyric { get; private set; }
     public LyricText? InactiveGlowLyric { get; private set; }
+    public IReadOnlyList<LyricText> ActiveGlowLyrics => _activeGlowLyrics;
+    public IReadOnlyList<LyricText> InactiveGlowLyrics => _inactiveGlowLyrics;
+
+    private readonly List<LyricText> _activeGlowLyrics = [];
+    private readonly List<LyricText> _inactiveGlowLyrics = [];
 
     public void RefreshStroke()
     {
@@ -89,6 +94,8 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
     {
         ActiveGlowLyric = null;
         InactiveGlowLyric = null;
+        _activeGlowLyrics.Clear();
+        _inactiveGlowLyrics.Clear();
         foreach (var layer in _glowLayers)
         {
             MainHost.Children.Remove(layer);
@@ -98,24 +105,24 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
 
         if (_viewModel.InactiveGlowEnabled)
         {
-            var glow = CreateMainGlowLyric();
-            glow.Bind(LyricText.FillProperty, new Binding("InactiveFill"));
-            glow.Bind(Visual.EffectProperty, new Binding("InactiveGlowEffect"));
-            glow.HighlightClip = LyricText.ClipSideMode.Right;
-            MainHost.Children.Insert(0, glow);
-            _glowLayers.Add(glow);
-            InactiveGlowLyric = glow;
+            var outer = CreateMainGlowLyric("InactiveFill", "InactiveGlowOuterEffect", LyricText.ClipSideMode.Right);
+            var core = CreateMainGlowLyric("InactiveFill", "InactiveGlowEffect", LyricText.ClipSideMode.Right);
+            AddMainGlow(outer);
+            AddMainGlow(core);
+            _inactiveGlowLyrics.Add(outer);
+            _inactiveGlowLyrics.Add(core);
+            InactiveGlowLyric = core;
         }
 
         if (_viewModel.GlowEnabled)
         {
-            var glow = CreateMainGlowLyric();
-            glow.Bind(LyricText.FillProperty, new Binding("Fill"));
-            glow.Bind(Visual.EffectProperty, new Binding("GlowEffect"));
-            glow.HighlightClip = LyricText.ClipSideMode.Left;
-            MainHost.Children.Insert(0, glow);
-            _glowLayers.Add(glow);
-            ActiveGlowLyric = glow;
+            var outer = CreateMainGlowLyric("Fill", "GlowOuterEffect", LyricText.ClipSideMode.Left);
+            var core = CreateMainGlowLyric("Fill", "GlowEffect", LyricText.ClipSideMode.Left);
+            AddMainGlow(outer);
+            AddMainGlow(core);
+            _activeGlowLyrics.Add(outer);
+            _activeGlowLyrics.Add(core);
+            ActiveGlowLyric = core;
 
             var translationGlow = CreateTranslationBase();
             translationGlow.Bind(TextBlock.ForegroundProperty, new Binding("Fill"));
@@ -187,12 +194,30 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
         lyric.HighlightClip = LyricText.ClipSideMode.Right;
     }
 
-    private static LyricText CreateMainGlowLyric()
+    private static LyricText CreateMainGlowLyric(
+        string fillProperty,
+        string effectProperty,
+        LyricText.ClipSideMode clip)
     {
-        var lyric = new LyricText();
+        const double effectPadding = 72;
+        var lyric = new LyricText
+        {
+            EffectPadding = effectPadding,
+            Margin = new Thickness(-effectPadding),
+            HighlightClip = clip,
+            IsHitTestVisible = false,
+        };
         BindLyricBase(lyric);
         lyric.Bind(LyricText.HighlightLengthProperty, new Binding("WordHighlightLength"));
+        lyric.Bind(LyricText.FillProperty, new Binding(fillProperty));
+        lyric.Bind(Visual.EffectProperty, new Binding(effectProperty));
         return lyric;
+    }
+
+    private void AddMainGlow(LyricText glow)
+    {
+        MainHost.Children.Insert(0, glow);
+        _glowLayers.Add(glow);
     }
 
     private static TextBlock CreateTranslationText()

@@ -47,7 +47,9 @@ public sealed class PlaybackClock
     {
         _basePos = TimeSpan.Zero;
         _baseAt = DateTimeOffset.UtcNow;
+        _rate = 1.0;
         _duration = TimeSpan.Zero;
+        IsPlaying = false;
     }
 
     public TimeSpan Estimate()

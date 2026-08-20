@@ -15,7 +15,8 @@ public sealed class OverlayViewModel : ObservableObject
     [
         nameof(MainText), nameof(TransText), nameof(ShowTransLine),
         nameof(FontFamilyValue), nameof(MainFontSize), nameof(EffectiveTransFontSize), nameof(WeightValue),
-        nameof(Fill), nameof(InactiveFill), nameof(ActiveLayerInactiveFill), nameof(TextOpacity), nameof(MaxTextWidth), nameof(TextEffect), nameof(GlowEffect),
+        nameof(Fill), nameof(InactiveFill), nameof(ActiveLayerInactiveFill), nameof(TextOpacity), nameof(MaxTextWidth), nameof(TextEffect),
+        nameof(GlowEffect), nameof(GlowOuterEffect), nameof(InactiveGlowOuterEffect),
         nameof(WindowVisible), nameof(IsPlaying), nameof(Phase),
         nameof(StrokeEnabled), nameof(StrokeBrush), nameof(StrokeThickness), nameof(LineSpacing),
         nameof(TextAlignment), nameof(GlowEnabled),
@@ -53,8 +54,10 @@ public sealed class OverlayViewModel : ObservableObject
     private IEffect? _shadowCache;
     private string _glowKeyCache = "";
     private IEffect? _glowCache;
+    private IEffect? _glowOuterCache;
     private string _inactiveGlowKeyCache = "";
     private IEffect? _inactiveGlowCache;
+    private IEffect? _inactiveGlowOuterCache;
     private string _luminousGlowKeyCache = "";
     private IBrush _luminousGlowBrushCache = Brushes.White;
     private IEffect? _luminousCoreGlowCache;
@@ -413,8 +416,16 @@ public sealed class OverlayViewModel : ObservableObject
                 {
                     OffsetX = 0,
                     OffsetY = 0,
-                    BlurRadius = Math.Clamp(S.InactiveGlowRadius, 4, 60),
-                    Opacity = 0.85,
+                    BlurRadius = Math.Clamp(S.InactiveGlowRadius * 0.75, 3, 30),
+                    Opacity = 1,
+                    Color = color,
+                };
+                _inactiveGlowOuterCache = new DropShadowEffect
+                {
+                    OffsetX = 0,
+                    OffsetY = 0,
+                    BlurRadius = Math.Clamp(S.InactiveGlowRadius * 1.8, 10, 64),
+                    Opacity = 0.72,
                     Color = color,
                 };
             }
@@ -443,6 +454,15 @@ public sealed class OverlayViewModel : ObservableObject
         }
     }
 
+    public IEffect? InactiveGlowOuterEffect
+    {
+        get
+        {
+            _ = InactiveGlowEffect;
+            return _inactiveGlowOuterCache;
+        }
+    }
+
     public IEffect? LuminousCoreGlowEffect
     {
         get
@@ -461,9 +481,9 @@ public sealed class OverlayViewModel : ObservableObject
         }
     }
 
-    public double LuminousCoreGlowOpacity => LuminousActiveEnvelope() * 0.95;
+    public double LuminousCoreGlowOpacity => LuminousActiveEnvelope();
 
-    public double LuminousOuterGlowOpacity => LuminousActiveEnvelope() * 0.72;
+    public double LuminousOuterGlowOpacity => LuminousActiveEnvelope() * 0.9;
 
     public double LuminousAfterglowOpacity
     {
@@ -480,7 +500,7 @@ public sealed class OverlayViewModel : ObservableObject
             var release = 1 - SmoothStep(frame.ReleasedElapsedMs / (double)releaseMs);
             var longNote = LongNoteFactor(frame.ReleasedCharacterDurationMs);
             var strength = Math.Clamp(S.LuminousGlowStrength, 0.2, 2.0);
-            return Math.Clamp(TextOpacity * strength * release * (0.28 + longNote * 0.42), 0, 1);
+            return Math.Clamp(TextOpacity * strength * release * (0.48 + longNote * 0.52), 0, 1);
         }
     }
 
@@ -496,9 +516,9 @@ public sealed class OverlayViewModel : ObservableObject
         var releaseWindow = Math.Clamp(duration * 0.22, 70, 180);
         var release = SmoothStep((duration - elapsed) / releaseWindow);
         var longNote = LongNoteFactor(duration);
-        var pulse = 1 + Math.Sin(elapsed * Math.PI * 2 / 900.0) * longNote * 0.08;
+        var pulse = 1 + Math.Sin(elapsed * Math.PI * 2 / 900.0) * longNote * 0.12;
         var strength = Math.Clamp(S.LuminousGlowStrength, 0.2, 2.0);
-        return Math.Clamp(TextOpacity * strength * attack * release * (0.38 + longNote * 0.62) * pulse, 0, 1);
+        return Math.Clamp(TextOpacity * strength * attack * release * (0.68 + longNote * 0.52) * pulse, 0, 1);
     }
 
     private double LongNoteFactor(long durationMs)
@@ -515,8 +535,8 @@ public sealed class OverlayViewModel : ObservableObject
 
     private void EnsureLuminousGlowResources()
     {
-        var coreRadius = Math.Clamp(S.FontSize * 0.3, 8, 18);
-        var outerRadius = Math.Clamp(S.FontSize * 0.8, 20, 42);
+        var coreRadius = Math.Clamp(S.FontSize * 0.38, 10, 24);
+        var outerRadius = Math.Clamp(S.FontSize * 1.05, 28, 58);
         var key = $"{S.LuminousGlowColorHex}|{coreRadius:F1}|{outerRadius:F1}";
         if (_luminousGlowKeyCache == key)
             return;
@@ -529,7 +549,7 @@ public sealed class OverlayViewModel : ObservableObject
             OffsetX = 0,
             OffsetY = 0,
             BlurRadius = coreRadius,
-            Opacity = 0.95,
+            Opacity = 1,
             Color = color,
         };
         _luminousOuterGlowCache = new DropShadowEffect
@@ -537,7 +557,7 @@ public sealed class OverlayViewModel : ObservableObject
             OffsetX = 0,
             OffsetY = 0,
             BlurRadius = outerRadius,
-            Opacity = 0.72,
+            Opacity = 0.88,
             Color = color,
         };
     }
@@ -587,12 +607,29 @@ public sealed class OverlayViewModel : ObservableObject
                 {
                     OffsetX = 0,
                     OffsetY = 0,
-                    BlurRadius = Math.Clamp(S.GlowRadius, 4, 60),
-                    Opacity = 0.85,
+                    BlurRadius = Math.Clamp(S.GlowRadius * 0.75, 3, 30),
+                    Opacity = 1,
+                    Color = color,
+                };
+                _glowOuterCache = new DropShadowEffect
+                {
+                    OffsetX = 0,
+                    OffsetY = 0,
+                    BlurRadius = Math.Clamp(S.GlowRadius * 1.8, 10, 64),
+                    Opacity = 0.82,
                     Color = color,
                 };
             }
             return _glowCache;
+        }
+    }
+
+    public IEffect? GlowOuterEffect
+    {
+        get
+        {
+            _ = GlowEffect;
+            return _glowOuterCache;
         }
     }
 

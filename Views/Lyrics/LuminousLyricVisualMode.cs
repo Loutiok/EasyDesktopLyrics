@@ -44,6 +44,8 @@ internal sealed class LuminousLyricVisualMode : ILyricVisualMode
     public TextBlock TranslationText => _classic.TranslationText;
     public LyricText? ActiveGlowLyric => _classic.ActiveGlowLyric;
     public LyricText? InactiveGlowLyric => _classic.InactiveGlowLyric;
+    public IReadOnlyList<LyricText> ActiveGlowLyrics => _classic.ActiveGlowLyrics;
+    public IReadOnlyList<LyricText> InactiveGlowLyrics => _classic.InactiveGlowLyrics;
 
     public void RefreshStroke() => _classic.RefreshStroke();
 
@@ -62,9 +64,12 @@ internal sealed class LuminousLyricVisualMode : ILyricVisualMode
     private static LyricText CreateCharacterGlow(
         string characterIndexProperty, string opacityProperty, string effectProperty)
     {
+        const double effectPadding = 72;
         var glow = new LyricText
         {
             HighlightClip = LyricText.ClipSideMode.Character,
+            EffectPadding = effectPadding,
+            Margin = new Thickness(-effectPadding),
             IsHitTestVisible = false,
         };
         glow.Bind(LyricText.TextProperty, new Binding("MainText"));

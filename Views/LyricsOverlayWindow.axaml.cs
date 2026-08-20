@@ -60,8 +60,8 @@ public sealed partial class LyricsOverlayWindow : Window
     private LyricText _mainLyric => _lyricVisualMode.ActiveLyric;
     private Grid _transGrid => _lyricVisualMode.TranslationHost;
     private TextBlock _transTb => _lyricVisualMode.TranslationText;
-    private LyricText? _mainGlowLyric => _lyricVisualMode.ActiveGlowLyric;
-    private LyricText? _inactiveGlowLyric => _lyricVisualMode.InactiveGlowLyric;
+    private IReadOnlyList<LyricText> _mainGlowLyrics => _lyricVisualMode.ActiveGlowLyrics;
+    private IReadOnlyList<LyricText> _inactiveGlowLyrics => _lyricVisualMode.InactiveGlowLyrics;
 
     // 行间切换动效状态
     private string _lineAnimKind = "";
@@ -680,8 +680,8 @@ public sealed partial class LyricsOverlayWindow : Window
     {
         _revealHidingInactive = true;
         _inactiveLyric.IsVisible = false;
-        if (_inactiveGlowLyric != null)
-            _inactiveGlowLyric.IsVisible = false;
+        foreach (var glow in _inactiveGlowLyrics)
+            glow.IsVisible = false;
 
         AnimateLineHost(_transGrid, TransformOperations.Identity,
             TimeSpan.FromMilliseconds(durMs), EasingFor(_settingsService.Current.LineTransitionEasing));
@@ -733,8 +733,8 @@ public sealed partial class LyricsOverlayWindow : Window
     private void ApplyEnterProgress(double p)
     {
         _mainLyric.EnterProgress = p;
-        if (_mainGlowLyric != null)
-            _mainGlowLyric.EnterProgress = p;
+        foreach (var glow in _mainGlowLyrics)
+            glow.EnterProgress = p;
     }
 
     private void ApplyShineProgress(double p)
@@ -776,13 +776,13 @@ public sealed partial class LyricsOverlayWindow : Window
         else if (_lineAnimKind == "Reveal")
         {
             _mainLyric.EnterProgress = -1;
-            if (_mainGlowLyric != null)
-                _mainGlowLyric.EnterProgress = -1;
+            foreach (var glow in _mainGlowLyrics)
+                glow.EnterProgress = -1;
             if (_revealHidingInactive)
             {
                 _inactiveLyric.IsVisible = true;
-                if (_inactiveGlowLyric != null)
-                    _inactiveGlowLyric.IsVisible = true;
+                foreach (var glow in _inactiveGlowLyrics)
+                    glow.IsVisible = true;
                 _revealHidingInactive = false;
             }
         }
@@ -831,8 +831,8 @@ public sealed partial class LyricsOverlayWindow : Window
         _lineAnimKind = "";
 
         _mainLyric.EnterProgress = -1;
-        if (_mainGlowLyric != null)
-            _mainGlowLyric.EnterProgress = -1;
+        foreach (var glow in _mainGlowLyrics)
+            glow.EnterProgress = -1;
         if (_shineLayer != null)
         {
             LyricsArea.Children.Remove(_shineLayer);
@@ -843,8 +843,8 @@ public sealed partial class LyricsOverlayWindow : Window
         if (_revealHidingInactive)
         {
             _inactiveLyric.IsVisible = true;
-            if (_inactiveGlowLyric != null)
-                _inactiveGlowLyric.IsVisible = true;
+            foreach (var glow in _inactiveGlowLyrics)
+                glow.IsVisible = true;
             _revealHidingInactive = false;
         }
         ClearExitOverlays();
@@ -960,7 +960,7 @@ public sealed partial class LyricsOverlayWindow : Window
         ApplyCoverLayout();
         UpdateCoverSize();
         var animate = _vm.CoverCutAnimation && _vm.ConsumeCutAnimationFlag();
-        Log.Info($"cover: track={_vm.CoverTrackKey} image={( _vm.CoverImage != null)} animate={animate} enabled={_vm.CoverEnabled}");
+        Log.Info($"cover: track={_vm.CoverTrackKey} image={(_vm.CoverImage != null)} animate={animate} enabled={_vm.CoverEnabled}");
 
         if (_vm.CoverImage == null)
         {

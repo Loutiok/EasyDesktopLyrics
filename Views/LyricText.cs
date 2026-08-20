@@ -95,6 +95,10 @@ public sealed class LyricText : Control
     public static readonly StyledProperty<double> MaxTextWidthProperty =
         AvaloniaProperty.Register<LyricText, double>(nameof(MaxTextWidth), double.PositiveInfinity);
 
+    /// <summary>为模糊/阴影特效预留的透明绘制边距，避免合成器在文字边缘裁出直线。</summary>
+    public static readonly StyledProperty<double> EffectPaddingProperty =
+        AvaloniaProperty.Register<LyricText, double>(nameof(EffectPadding), 0);
+
     public static readonly StyledProperty<TextAlignment> TextAlignmentProperty =
         AvaloniaProperty.Register<LyricText, TextAlignment>(nameof(TextAlignment), TextAlignment.Center);
 
@@ -109,14 +113,14 @@ public sealed class LyricText : Control
     {
         AffectsMeasure<LyricText>(
             TextProperty, FontFamilyProperty, FontWeightProperty, FontSizeProperty,
-            MaxTextWidthProperty);
+            MaxTextWidthProperty, EffectPaddingProperty);
         AffectsRender<LyricText>(
             TextProperty, FontFamilyProperty, FontWeightProperty, FontSizeProperty,
             FillProperty, InactiveFillProperty, StrokeBrushProperty, StrokeEnabledProperty,
             StrokeThicknessProperty, InactiveStrokeEnabledProperty, InactiveStrokeBrushProperty,
             TextAlignmentProperty, HighlightLengthProperty, HighlightFractionProperty,
             HighlightClipProperty, MaskCharacterIndexProperty, MaxTextWidthProperty,
-            EnterProgressProperty, ShineProgressProperty);
+            EffectPaddingProperty, EnterProgressProperty, ShineProgressProperty);
     }
 
     public string? Text
@@ -227,6 +231,12 @@ public sealed class LyricText : Control
         set => SetValue(MaxTextWidthProperty, value);
     }
 
+    public double EffectPadding
+    {
+        get => GetValue(EffectPaddingProperty);
+        set => SetValue(EffectPaddingProperty, value);
+    }
+
     public TextAlignment TextAlignment
     {
         get => GetValue(TextAlignmentProperty);
@@ -259,6 +269,10 @@ public sealed class LyricText : Control
         if (body == null)
             return;
 
+        var padding = Math.Max(EffectPadding, 0);
+        using var paddingTransform = padding > 0
+            ? (IDisposable)context.PushTransform(Matrix.CreateTranslation(padding, padding))
+            : null;
         var thickness = StrokeEnabled ? StrokeThickness : 0;
 
         // 扫光层：整行按亮带遮罩绘制（亮带位置由 ShineProgress 驱动，独立于逐字/描边分支）。
@@ -334,7 +348,10 @@ public sealed class LyricText : Control
     {
         RebuildIfDirty();
         var body = _bodyLayout;
-        return body != null ? new Size(body.Width, body.Height) : new Size();
+        if (body == null)
+            return new Size();
+        var padding = Math.Max(EffectPadding, 0);
+        return new Size(body.Width + padding * 2, body.Height + padding * 2);
     }
 
     private void RebuildIfDirty()
@@ -460,7 +477,8 @@ public sealed class LyricText : Control
         var x0 = _charLeft[characterIndex];
         var x1 = _charLeft[characterIndex + 1];
         var characterWidth = Math.Max(x1 - x0, 0.001);
-        var feather = Math.Min(characterWidth * 0.18, 3);
+        // 大半径辉光会放大硬遮罩边缘；让遮罩跨越相邻字间距渐隐，保持光晕连续。
+        var feather = Math.Clamp(characterWidth * 0.55, 6, 16);
         var width = layout.Width;
         var stops = new List<GradientStop>(6);
 

@@ -1,4 +1,5 @@
 using EasyDesktopLyrics.Models;
+using System.Text;
 
 namespace EasyDesktopLyrics.Services;
 
@@ -35,36 +36,21 @@ internal static class LyricsTimelineBuilder
             return [];
 
         var lineEnd = ResolveLineEnd(line, nextLineStart);
-        var times = new List<LyricCharTime>(line.Text.Length);
-        var offset = 0;
+        var source = new List<SourceCharacterTiming>();
 
         for (var wordIndex = 0; wordIndex < words.Count; wordIndex++)
         {
             var word = words[wordIndex];
-            var length = Math.Min(word.Text.Length, line.Text.Length - offset);
-            if (length <= 0)
-            {
-                offset += word.Text.Length;
+            var characters = word.Text.Where(c => !char.IsWhiteSpace(c)).ToArray();
+            if (characters.Length == 0)
                 continue;
-            }
 
             var nextWordStart = wordIndex + 1 < words.Count ? words[wordIndex + 1].TimeMs : (long?)null;
             var wordEnd = ResolveWordEnd(word, nextWordStart, lineEnd);
-            AddEvenCharacterTimings(times, offset, length, word.TimeMs, wordEnd);
-            offset += length;
+            AddSourceCharacterTimings(source, characters, word.TimeMs, wordEnd);
         }
 
-        // 对齐差异留下的字符沿用当前行剩余时段，保证索引完整且永不越界。
-        if (offset < line.Text.Length)
-        {
-            var tailStart = times.Count > 0 ? times[^1].EndMs : line.TimeMs;
-            var tailEnd = lineEnd is > 0
-                ? Math.Max(lineEnd.Value, tailStart + 1)
-                : tailStart + LastWordFallbackMs;
-            AddEvenCharacterTimings(times, offset, line.Text.Length - offset, tailStart, tailEnd);
-        }
-
-        return times;
+        return AlignToDisplayedText(line, lineEnd, source);
     }
 
     /// <summary>计算指定播放位置的离散/连续歌词状态；最近释放字符只保留 600ms，避免无动画时持续刷新。</summary>
@@ -141,19 +127,125 @@ internal static class LyricsTimelineBuilder
         return end > word.TimeMs ? end : word.TimeMs + 1;
     }
 
-    private static void AddEvenCharacterTimings(
-        ICollection<LyricCharTime> target,
-        int offset,
-        int length,
+    private static void AddSourceCharacterTimings(
+        ICollection<SourceCharacterTiming> target,
+        IReadOnlyList<char> characters,
         long startMs,
         long endMs)
     {
         var duration = Math.Max(endMs - startMs, 1);
-        for (var index = 0; index < length; index++)
+        for (var index = 0; index < characters.Count; index++)
         {
-            var start = startMs + (long)(duration * (double)index / length);
-            var end = startMs + (long)(duration * (double)(index + 1) / length);
-            target.Add(new LyricCharTime(offset + index, start, Math.Max(end, start + 1)));
+            var start = startMs + (long)(duration * (double)index / characters.Count);
+            var end = startMs + (long)(duration * (double)(index + 1) / characters.Count);
+            target.Add(new SourceCharacterTiming(
+                NormalizeCharacter(characters[index]), start, Math.Max(end, start + 1)));
         }
     }
+
+    /// <summary>
+    /// 将逐字源字符映射回实际显示文本。源通常会丢弃英文词间空格，且可能使用全角标点；
+    /// 使用 LCS 保持字符顺序，再为未匹配的空格/标点填充相邻时段，避免索引逐步漂移。
+    /// </summary>
+    private static IReadOnlyList<LyricCharTime> AlignToDisplayedText(
+        LyricLine line,
+        long? lineEnd,
+        IReadOnlyList<SourceCharacterTiming> source)
+    {
+        var target = line.Text
+            .Select((character, index) => new TargetCharacter(index, NormalizeCharacter(character)))
+            .Where(item => !char.IsWhiteSpace(item.Character))
+            .ToList();
+        var mapped = new LyricCharTime?[line.Text.Length];
+
+        var lcs = new int[source.Count + 1, target.Count + 1];
+        for (var sourceIndex = source.Count - 1; sourceIndex >= 0; sourceIndex--)
+        {
+            for (var targetIndex = target.Count - 1; targetIndex >= 0; targetIndex--)
+            {
+                lcs[sourceIndex, targetIndex] = source[sourceIndex].Character == target[targetIndex].Character
+                    ? lcs[sourceIndex + 1, targetIndex + 1] + 1
+                    : Math.Max(lcs[sourceIndex + 1, targetIndex], lcs[sourceIndex, targetIndex + 1]);
+            }
+        }
+
+        var si = 0;
+        var ti = 0;
+        while (si < source.Count && ti < target.Count)
+        {
+            if (source[si].Character == target[ti].Character)
+            {
+                var timing = source[si];
+                var displayIndex = target[ti].Index;
+                mapped[displayIndex] = new LyricCharTime(displayIndex, timing.StartMs, timing.EndMs);
+                si++;
+                ti++;
+            }
+            else if (lcs[si + 1, ti] >= lcs[si, ti + 1])
+            {
+                si++;
+            }
+            else
+            {
+                ti++;
+            }
+        }
+
+        FillUnmappedRanges(mapped, line.TimeMs, ResolveFallbackEnd(line, lineEnd, source));
+        return mapped.Select(timing => timing!).ToList();
+    }
+
+    private static void FillUnmappedRanges(
+        LyricCharTime?[] mapped,
+        long lineStart,
+        long lineEnd)
+    {
+        var index = 0;
+        while (index < mapped.Length)
+        {
+            if (mapped[index] != null)
+            {
+                index++;
+                continue;
+            }
+
+            var rangeStart = index;
+            while (index < mapped.Length && mapped[index] == null)
+                index++;
+            var rangeEnd = index;
+            var startMs = rangeStart > 0 && mapped[rangeStart - 1] != null
+                ? mapped[rangeStart - 1]!.EndMs
+                : lineStart;
+            var endMs = rangeEnd < mapped.Length && mapped[rangeEnd] != null
+                ? mapped[rangeEnd]!.StartMs
+                : lineEnd;
+            endMs = Math.Max(endMs, startMs + rangeEnd - rangeStart);
+
+            for (var current = rangeStart; current < rangeEnd; current++)
+            {
+                var start = startMs + (long)((endMs - startMs) * (double)(current - rangeStart) / (rangeEnd - rangeStart));
+                var end = startMs + (long)((endMs - startMs) * (double)(current - rangeStart + 1) / (rangeEnd - rangeStart));
+                mapped[current] = new LyricCharTime(current, start, Math.Max(end, start + 1));
+            }
+        }
+    }
+
+    private static long ResolveFallbackEnd(
+        LyricLine line,
+        long? lineEnd,
+        IReadOnlyList<SourceCharacterTiming> source)
+    {
+        var sourceEnd = source.Count > 0 ? source[^1].EndMs : line.TimeMs;
+        return Math.Max(lineEnd ?? sourceEnd + LastWordFallbackMs, Math.Max(sourceEnd, line.TimeMs + 1));
+    }
+
+    private static char NormalizeCharacter(char character)
+    {
+        var normalized = character.ToString().Normalize(NormalizationForm.FormKC);
+        return normalized.Length > 0 ? char.ToUpperInvariant(normalized[0]) : character;
+    }
+
+    private readonly record struct SourceCharacterTiming(char Character, long StartMs, long EndMs);
+
+    private readonly record struct TargetCharacter(int Index, char Character);
 }

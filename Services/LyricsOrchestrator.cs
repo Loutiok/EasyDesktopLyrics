@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text;
 using Avalonia.Threading;
 using EasyDesktopLyrics.Infrastructure;
 using EasyDesktopLyrics.Models;
@@ -368,7 +369,8 @@ public sealed partial class LyricsOrchestrator
     }
 
     /// <summary>
-    /// 逐字补充层合并：klyric 按时间（±800ms 内取最近）挂到主歌词行；
+    /// 逐字补充层合并：优先按规范化文本挂到主歌词行，时间仅用于重复句消歧；
+    /// 文本不可匹配时才回退到 ±800ms 最近行。
     /// 匹配率 ≥60% 才视为整首有效（否则整体回退整行高亮）。
     /// </summary>
     private static LyricDocument MergeWordLines(
@@ -379,31 +381,73 @@ public sealed partial class LyricsOrchestrator
 
         var lines = doc.Lines.ToList();
         var matched = 0;
+        var usedWordLines = new HashSet<int>();
         for (var i = 0; i < lines.Count; i++)
         {
             var l = lines[i];
             long bestDelta = long.MaxValue;
             LyricWordLine? best = null;
-            foreach (var wl in wordLines)
+            var bestIndex = -1;
+            var normalizedText = NormalizeLyricText(l.Text);
+
+            // YRC 的行起点可能包含数秒前导长音/静音，不能只依赖时间戳。
+            // 同文重复句仍以时间最近者消歧，并保证一条逐字行最多消费一次。
+            if (normalizedText.Length > 0)
             {
-                var d = Math.Abs(wl.TimeMs - l.TimeMs);
-                if (d >= bestDelta)
-                    continue;
-                bestDelta = d;
-                best = wl;
+                for (var wordIndex = 0; wordIndex < wordLines.Count; wordIndex++)
+                {
+                    if (usedWordLines.Contains(wordIndex))
+                        continue;
+                    var wl = wordLines[wordIndex];
+                    var wordText = string.Concat(wl.Words.Select(word => word.Text));
+                    if (NormalizeLyricText(wordText) != normalizedText)
+                        continue;
+                    var delta = Math.Abs(wl.TimeMs - l.TimeMs);
+                    if (delta >= bestDelta)
+                        continue;
+                    bestDelta = delta;
+                    best = wl;
+                    bestIndex = wordIndex;
+                }
             }
-            if (best != null && bestDelta < 800)
+
+            if (best == null)
+            {
+                for (var wordIndex = 0; wordIndex < wordLines.Count; wordIndex++)
+                {
+                    if (usedWordLines.Contains(wordIndex))
+                        continue;
+                    var wl = wordLines[wordIndex];
+                    var delta = Math.Abs(wl.TimeMs - l.TimeMs);
+                    if (delta >= bestDelta)
+                        continue;
+                    bestDelta = delta;
+                    best = wl;
+                    bestIndex = wordIndex;
+                }
+                if (bestDelta >= 800)
+                    best = null;
+            }
+
+            if (best != null)
             {
                 long? duration = best.EndMs.HasValue
                     ? Math.Max(best.EndMs.Value - l.TimeMs, 1)
                     : null;
                 lines[i] = l with { Words = best.Words, DurationMs = duration };
+                usedWordLines.Add(bestIndex);
                 matched++;
             }
         }
         return matched * 10 >= lines.Count * 6
             ? new LyricDocument(lines, doc.IsInstrumental)
             : doc;
+    }
+
+    private static string NormalizeLyricText(string text)
+    {
+        var normalized = text.Normalize(NormalizationForm.FormKC);
+        return string.Concat(normalized.Where(char.IsLetterOrDigit)).ToUpperInvariant();
     }
 
     /// <summary>

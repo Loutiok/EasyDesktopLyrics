@@ -146,7 +146,7 @@
               </Grid>
               <Grid ColumnDefinitions="90,*,64" ColumnSpacing="14">
                 <TextBlock Classes="sectionLabel" Text="辉光强度" />
-                <Slider Grid.Column="1" Minimum="4" Maximum="16" TickFrequency="1"
+                <Slider Grid.Column="1" Minimum="4" Maximum="32" TickFrequency="1"
                         Value="{Binding GlowRadiusVal, Mode=TwoWay}" />
                 <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
                          Text="{Binding GlowRadiusVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F0}'}"
@@ -166,7 +166,7 @@
               </Grid>
               <Grid ColumnDefinitions="90,*,64" ColumnSpacing="14">
                 <TextBlock Classes="sectionLabel" Text="辉光强度" />
-                <Slider Grid.Column="1" Minimum="4" Maximum="16" TickFrequency="1"
+                <Slider Grid.Column="1" Minimum="4" Maximum="32" TickFrequency="1"
                         Value="{Binding InactiveGlowRadiusVal, Mode=TwoWay}" />
                 <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
                          Text="{Binding InactiveGlowRadiusVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F0}'}"
