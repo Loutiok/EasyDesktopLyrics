@@ -1248,6 +1248,10 @@ public sealed partial class LyricsOverlayWindow : Window
         _coverPosDirty = false;
         SetLyricsOpacity(1);
         ExitCoverTitle(); // 歌名淡出（250ms）后退出布局
+        _coverPlan = CoverAnimationPlan.Create(
+            OuterGrid.Bounds.Width, _coverSize, _coverAnimSize, CoverSlotOffset(),
+            _settingsService.Current.CoverAnimDirection,
+            _settingsService.Current.CoverAnimSlideDistance);
         if (_vm.CoverEnabled)
         {
             // 常驻：围绕中心缩小并移动到常驻位，布局尺寸保持不变。
@@ -1321,9 +1325,8 @@ public sealed partial class LyricsOverlayWindow : Window
         if (!CoverTitleBox.IsVisible)
             return;
         const double gap = 8;
-        var x = Math.Max(0, (OuterGrid.Bounds.Width - CoverTitleBox.Bounds.Width) / 2);
         var y = (_coverAnimating ? _coverAnimSize : Cover.Bounds.Height) + gap;
-        CoverTitleBox.RenderTransform = Translate(x + dx, y + dy);
+        CoverTitleBox.RenderTransform = Translate(dx, y + dy);
     }
 
     private void SetLyricsOpacity(double opacity) => LyricsViewbox.Opacity = opacity;
@@ -1352,7 +1355,8 @@ public sealed partial class LyricsOverlayWindow : Window
         if (_vm.CoverEnabled && Cover.Opacity > 0)
         {
             var target = CoverSlotOffset();
-            ApplyCoverVisual(CoverAnimationPlan.Resting(target, visible: true));
+            ApplyCoverVisual(CoverAnimationPlan.Resting(
+                OuterGrid.Bounds.Width, _coverSize, target, visible: true));
         }
     }
 
@@ -1382,11 +1386,13 @@ public sealed partial class LyricsOverlayWindow : Window
                 CoverImage.Width = _coverSize;
                 CoverImage.Height = _coverSize;
                 var target = CoverSlotOffset();
-                ApplyCoverVisual(CoverAnimationPlan.Resting(target, visible: true));
+                ApplyCoverVisual(CoverAnimationPlan.Resting(
+                    OuterGrid.Bounds.Width, _coverSize, target, visible: true));
             }
             else
             {
-                ApplyCoverVisual(CoverAnimationPlan.Resting(CoverSlotOffset(), visible: false));
+                ApplyCoverVisual(CoverAnimationPlan.Resting(
+                    OuterGrid.Bounds.Width, _coverSize, CoverSlotOffset(), visible: false));
             }
         }
         finally
@@ -1521,31 +1527,46 @@ public sealed partial class LyricsOverlayWindow : Window
                 // （会把顶部推到屏幕外再被钳到顶边），待尺寸稳定合理后再以锚点定位一次。
                 ScheduleInitialAnchorApply();
             }
-            else if (e.HeightChanged && !e.WidthChanged && grow != 0)
-            {
-                // 纯高度变化（胶囊展开/封面动画/字体变化）：
-                // 1=向下扩展（顶部固定，Position 不变）；2=向上扩展（底部固定，顶部上移）
-                if (grow == 2)
-                {
-                    var s = Screens.ScreenFromWindow(this)?.Scaling ?? 1.0;
-                    _suppressPositionUpdate = true;
-                    Position = new PixelPoint(Position.X, (int)(_lastGrowBottom - ClientSize.Height * s));
-                    _suppressPositionUpdate = false;
-                }
-            }
             else
             {
-                RepositionToAnchor();
+                RepositionForSizeChange(e, grow);
             }
         }
         // 记录当前窗口底边（物理像素），供"向上扩展"模式使用
         var scale = Screens.ScreenFromWindow(this)?.Scaling ?? 1.0;
         _lastGrowBottom = Position.Y + (int)Math.Round(ClientSize.Height * scale);
-        // 锚点 = 窗口实际中心：初始定位完成后的尺寸/位置变化同步（含纯高度增长的上下扩展），
-        // 否则锚点停留在上次拖拽时的旧中心，后续宽度变化重定位会把窗口向上/下漂移。
-        if (_firstSizeApplied)
-            WriteAnchorFromPosition();
         LogSizeDiagnostics();
+    }
+
+    /// <summary>
+    /// 自动布局变化只移动窗口，不改写用户锚点。宽度始终围绕水平锚点变化；高度遵循扩展方向，
+    /// 即使宽高在同一布局事件中同时变化，也不能退回到上下居中的旧逻辑。
+    /// </summary>
+    private void RepositionForSizeChange(SizeChangedEventArgs e, int grow)
+    {
+        var s = Screens.ScreenFromWindow(this)?.Scaling ?? 1.0;
+        var x = e.WidthChanged
+            ? (int)Math.Round(_anchor.X - ClientSize.Width * s / 2)
+            : Position.X;
+        var y = Position.Y;
+        if (e.HeightChanged)
+        {
+            y = grow switch
+            {
+                2 => (int)Math.Round(_lastGrowBottom - ClientSize.Height * s),
+                0 => (int)Math.Round(_anchor.Y - ClientSize.Height * s / 2),
+                _ => Position.Y,
+            };
+        }
+
+        if (x == Position.X && y == Position.Y)
+            return;
+
+        _suppressPositionUpdate = true;
+        Position = new PixelPoint(x, y);
+        _suppressPositionUpdate = false;
+        Log.Info($"trc RepositionForSizeChange grow={grow} anchor=({_anchor.X},{_anchor.Y}) " +
+                 $"client={ClientSize.Width:F1}x{ClientSize.Height:F1} s={s:F3} pos={Position.X},{Position.Y}");
     }
 
     private DateTimeOffset _lastSizeDiag = DateTimeOffset.MinValue;
@@ -1677,6 +1698,7 @@ public sealed partial class LyricsOverlayWindow : Window
         _suppressPositionUpdate = true;
         Position = new PixelPoint((int)(_anchor.X - pw / 2), (int)(_anchor.Y - ph / 2));
         _suppressPositionUpdate = false;
+        _lastGrowBottom = Position.Y + (int)Math.Round(ClientSize.Height * s);
         Log.Info($"trc RepositionToAnchor anchor=({_anchor.X},{_anchor.Y}) client={ClientSize.Width:F1}x{ClientSize.Height:F1} s={s:F3} pos={Position.X},{Position.Y}");
     }
 
@@ -1688,6 +1710,7 @@ public sealed partial class LyricsOverlayWindow : Window
         _anchor = new PixelPoint(
             (int)(Position.X + ClientSize.Width * s / 2),
             (int)(Position.Y + ClientSize.Height * s / 2));
+        _lastGrowBottom = Position.Y + (int)Math.Round(ClientSize.Height * s);
         var ax = _anchor.X; var ay = _anchor.Y;
         _anchorDebouncer.Schedule(TimeSpan.FromMilliseconds(500), () => AnchorChanged?.Invoke(ax, ay));
     }
