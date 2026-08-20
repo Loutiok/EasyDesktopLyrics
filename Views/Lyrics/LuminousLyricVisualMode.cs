@@ -64,12 +64,9 @@ internal sealed class LuminousLyricVisualMode : ILyricVisualMode
     private static LyricText CreateCharacterGlow(
         string characterIndexProperty, string opacityProperty, string effectProperty)
     {
-        const double effectPadding = 72;
         var glow = new LyricText
         {
             HighlightClip = LyricText.ClipSideMode.Character,
-            EffectPadding = effectPadding,
-            Margin = new Thickness(-effectPadding),
             UseGlyphClipping = true,
             IsHitTestVisible = false,
         };
@@ -80,8 +77,8 @@ internal sealed class LuminousLyricVisualMode : ILyricVisualMode
         glow.Bind(LyricText.TextAlignmentProperty, new Binding("TextAlignment"));
         glow.Bind(LyricText.FillProperty, new Binding("LuminousGlowBrush"));
         glow.Bind(LyricText.MaskCharacterIndexProperty, new Binding(characterIndexProperty));
-        glow.Bind(Visual.OpacityProperty, new Binding(opacityProperty));
-        glow.Bind(Visual.EffectProperty, new Binding(effectProperty));
+        glow.Bind(LyricText.RenderOpacityProperty, new Binding(opacityProperty));
+        glow.Bind(LyricText.RenderEffectProperty, new Binding(effectProperty));
         return glow;
     }
 }

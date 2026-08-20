@@ -159,14 +159,17 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
         }
     }
 
-    private static void BindLyricBase(LyricText lyric)
+    private static void BindLyricBase(LyricText lyric, bool useRenderOpacity = false)
     {
         lyric.Bind(LyricText.TextProperty, new Binding("MainText"));
         lyric.Bind(LyricText.FontFamilyProperty, new Binding("FontFamilyValue"));
         lyric.Bind(LyricText.FontWeightProperty, new Binding("WeightValue"));
         lyric.Bind(LyricText.FontSizeProperty, new Binding("MainFontSize"));
         lyric.Bind(LyricText.TextAlignmentProperty, new Binding("TextAlignment"));
-        lyric.Bind(LyricText.OpacityProperty, new Binding("TextOpacity"));
+        if (useRenderOpacity)
+            lyric.Bind(LyricText.RenderOpacityProperty, new Binding("TextOpacity"));
+        else
+            lyric.Bind(LyricText.OpacityProperty, new Binding("TextOpacity"));
         lyric.Bind(LyricText.HighlightFractionProperty, new Binding("WordHighlightFraction"));
     }
 
@@ -199,19 +202,16 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
         string effectProperty,
         LyricText.ClipSideMode clip)
     {
-        const double effectPadding = 72;
         var lyric = new LyricText
         {
-            EffectPadding = effectPadding,
-            Margin = new Thickness(-effectPadding),
             HighlightClip = clip,
             UseGlyphClipping = true,
             IsHitTestVisible = false,
         };
-        BindLyricBase(lyric);
+        BindLyricBase(lyric, useRenderOpacity: true);
         lyric.Bind(LyricText.HighlightLengthProperty, new Binding("WordHighlightLength"));
         lyric.Bind(LyricText.FillProperty, new Binding(fillProperty));
-        lyric.Bind(Visual.EffectProperty, new Binding(effectProperty));
+        lyric.Bind(LyricText.RenderEffectProperty, new Binding(effectProperty));
         return lyric;
     }
 

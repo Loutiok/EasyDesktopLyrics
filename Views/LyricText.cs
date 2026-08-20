@@ -54,6 +54,14 @@ public sealed class LyricText : Control
     public static readonly StyledProperty<bool> UseGlyphClippingProperty =
         AvaloniaProperty.Register<LyricText, bool>(nameof(UseGlyphClipping), false);
 
+    /// <summary>在绘制命令内应用于字形内容的特效；与 Visual.Effect 不同，会按输出范围自动膨胀。</summary>
+    public static readonly StyledProperty<IEffect?> RenderEffectProperty =
+        AvaloniaProperty.Register<LyricText, IEffect?>(nameof(RenderEffect));
+
+    /// <summary>直接写入字形画笔的透明度，避免 Visual.Opacity 再次创建按控件边界合成的图层。</summary>
+    public static readonly StyledProperty<double> RenderOpacityProperty =
+        AvaloniaProperty.Register<LyricText, double>(nameof(RenderOpacity), 1);
+
     /// <summary>行进入逐字显现进度 0~1（从左到右逐个字符点亮）；-1 = 禁用（正常渲染）。</summary>
     public static readonly StyledProperty<double> EnterProgressProperty =
         AvaloniaProperty.Register<LyricText, double>(nameof(EnterProgress), -1);
@@ -99,10 +107,6 @@ public sealed class LyricText : Control
     public static readonly StyledProperty<double> MaxTextWidthProperty =
         AvaloniaProperty.Register<LyricText, double>(nameof(MaxTextWidth), double.PositiveInfinity);
 
-    /// <summary>为模糊/阴影特效预留的透明绘制边距，避免合成器在文字边缘裁出直线。</summary>
-    public static readonly StyledProperty<double> EffectPaddingProperty =
-        AvaloniaProperty.Register<LyricText, double>(nameof(EffectPadding), 0);
-
     public static readonly StyledProperty<TextAlignment> TextAlignmentProperty =
         AvaloniaProperty.Register<LyricText, TextAlignment>(nameof(TextAlignment), TextAlignment.Center);
 
@@ -116,14 +120,15 @@ public sealed class LyricText : Control
     {
         AffectsMeasure<LyricText>(
             TextProperty, FontFamilyProperty, FontWeightProperty, FontSizeProperty,
-            MaxTextWidthProperty, EffectPaddingProperty);
+            MaxTextWidthProperty);
         AffectsRender<LyricText>(
             TextProperty, FontFamilyProperty, FontWeightProperty, FontSizeProperty,
             FillProperty, InactiveFillProperty, StrokeBrushProperty, StrokeEnabledProperty,
             StrokeThicknessProperty, InactiveStrokeEnabledProperty, InactiveStrokeBrushProperty,
             TextAlignmentProperty, HighlightLengthProperty, HighlightFractionProperty,
             HighlightClipProperty, MaskCharacterIndexProperty, MaxTextWidthProperty,
-            UseGlyphClippingProperty, EffectPaddingProperty, EnterProgressProperty, ShineProgressProperty);
+            UseGlyphClippingProperty, RenderEffectProperty, RenderOpacityProperty,
+            EnterProgressProperty, ShineProgressProperty);
     }
 
     public string? Text
@@ -160,6 +165,18 @@ public sealed class LyricText : Control
     {
         get => GetValue(UseGlyphClippingProperty);
         set => SetValue(UseGlyphClippingProperty, value);
+    }
+
+    public IEffect? RenderEffect
+    {
+        get => GetValue(RenderEffectProperty);
+        set => SetValue(RenderEffectProperty, value);
+    }
+
+    public double RenderOpacity
+    {
+        get => GetValue(RenderOpacityProperty);
+        set => SetValue(RenderOpacityProperty, value);
     }
 
     public double EnterProgress
@@ -240,12 +257,6 @@ public sealed class LyricText : Control
         set => SetValue(MaxTextWidthProperty, value);
     }
 
-    public double EffectPadding
-    {
-        get => GetValue(EffectPaddingProperty);
-        set => SetValue(EffectPaddingProperty, value);
-    }
-
     public TextAlignment TextAlignment
     {
         get => GetValue(TextAlignmentProperty);
@@ -278,9 +289,9 @@ public sealed class LyricText : Control
         if (body == null)
             return;
 
-        var padding = Math.Max(EffectPadding, 0);
-        using var paddingTransform = padding > 0
-            ? (IDisposable)context.PushTransform(Matrix.CreateTranslation(padding, padding))
+        // PushEffect 会按 IEffect 的输出 padding 自动膨胀离屏区域，避免 Visual.Bounds 裁切大半径光晕。
+        using var effectState = RenderEffect != null
+            ? (IDisposable)context.PushEffect(RenderEffect, new Rect(0, 0, body.Width, body.Height))
             : null;
         var thickness = StrokeEnabled ? StrokeThickness : 0;
 
@@ -304,7 +315,7 @@ public sealed class LyricText : Control
         // 会把遮罩的中间纹理边界当成矩形光源，产生截图中的直角方框。
         if (HighlightClip == ClipSideMode.Character)
         {
-            DrawGlyphRange(context, MaskCharacterIndex, 1, 1);
+            DrawGlyphRange(context, MaskCharacterIndex, 1, RenderOpacity);
             return;
         }
 
@@ -315,6 +326,11 @@ public sealed class LyricText : Control
         {
             if (IsFlatMode && HighlightClip == ClipSideMode.Right)
                 return;
+            if (UseGlyphClipping)
+            {
+                DrawGlyphRange(context, 0, Text?.Length ?? 0, RenderOpacity);
+                return;
+            }
             DrawBody(context, body, thickness);
             return;
         }
@@ -362,8 +378,7 @@ public sealed class LyricText : Control
         var body = _bodyLayout;
         if (body == null)
             return new Size();
-        var padding = Math.Max(EffectPadding, 0);
-        return new Size(body.Width + padding * 2, body.Height + padding * 2);
+        return new Size(body.Width, body.Height);
     }
 
     private void RebuildIfDirty()
@@ -482,16 +497,16 @@ public sealed class LyricText : Control
 
         if (clip == ClipSideMode.Left)
         {
-            DrawGlyphRange(context, 0, done, 1);
+            DrawGlyphRange(context, 0, done, RenderOpacity);
             if (done < length)
-                DrawGlyphRange(context, done, 1, SmoothStep(fraction));
+                DrawGlyphRange(context, done, 1, RenderOpacity * SmoothStep(fraction));
             return;
         }
 
         if (done < length)
         {
-            DrawGlyphRange(context, done, 1, SmoothStep(1 - fraction));
-            DrawGlyphRange(context, done + 1, length - done - 1, 1);
+            DrawGlyphRange(context, done, 1, RenderOpacity * SmoothStep(1 - fraction));
+            DrawGlyphRange(context, done + 1, length - done - 1, RenderOpacity);
         }
     }
 
