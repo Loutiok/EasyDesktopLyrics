@@ -2,33 +2,45 @@
   <img src="Assets/app.png" width="88" alt="EasyDesktopLyrics" />
 </p>
 
-# EasyDesktopLyrics
+<h1 align="center">EasyDesktopLyrics</h1>
 
-Windows 桌面歌词工具。通过 [SMTC](https://learn.microsoft.com/windows/uwp/audio-video-camera/system-media-transport-controls) 跟随外部播放器同步显示歌词，歌词窗口常驻桌面并支持鼠标穿透（锁定后完全不挡操作），透明、轻量、即开即用。
+<p align="center">
+  面向 Windows 的轻量桌面歌词软件：跟随系统媒体会话同步歌词，并提供逐字流光、封面极光、音频频谱和可组合动画。
+</p>
 
-![Platform](https://img.shields.io/badge/platform-Windows%2010%202004+-blue)
-![.NET](https://img.shields.io/badge/.NET-10-512BD4)
-![Avalonia](https://img.shields.io/badge/Avalonia-12.1-8A2BE2)
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-3.0.0-0A84FF" />
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%202004+-0078D4" />
+  <img alt=".NET" src="https://img.shields.io/badge/.NET-10-512BD4" />
+  <img alt="Avalonia" src="https://img.shields.io/badge/Avalonia-12.1-8A2BE2" />
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-green" /></a>
+</p>
 
-## 截图
+EasyDesktopLyrics 通过 [SMTC](https://learn.microsoft.com/windows/uwp/audio-video-camera/system-media-transport-controls) 跟随 Spotify、网易云音乐、QQ 音乐、Apple Music、foobar2000 等播放器。歌词窗口可以常驻桌面，锁定后完全鼠标穿透，不影响其他窗口操作。
 
-歌词窗口不透明显示时随歌名/歌手变化，多行歌词 + 逐字高亮：
+## 界面预览
 
-| 歌词窗口（无常驻封面） | 歌词窗口（含常驻封面） |
+### 桌面歌词
+
+封面极光、流光歌词与音频驱动的极简曲线可以自由组合：
+
+![沉浸歌词效果](screenshots/overlay4.png)
+
+| 普通歌词与翻译 | 常驻封面与逐字高亮 | 悬停播放控制 |
+|:---:|:---:|:---:|
+| ![普通歌词与翻译](screenshots/overlay1.png) | ![常驻封面与逐字高亮](screenshots/overlay2.png) | ![悬停播放控制](screenshots/overlay3.png) |
+
+### 视觉设置
+
+| 内置与用户视觉预设 | 封面极光设置 |
 |:---:|:---:|
-| ![overlay1](screenshots/overlay1.png) | ![overlay2](screenshots/overlay2.png) |
+| ![视觉预设界面](screenshots/预设界面.png) | ![封面极光设置界面](screenshots/极光设置界面.png) |
 
-悬停歌词窗口时出现的播放控制胶囊（上一曲 / 播放暂停 / 下一曲）：
+设置界面仍保留文字、封面、显示、校正和背景动效等独立页面，适合在预设基础上继续微调：
 
-![overlay3](screenshots/overlay3.png)
-
-设置界面（外观、文字特效、歌词封面、行间动效、歌词来源等）：
-
-![setting](screenshots/setting.png)
+![动画与显示设置](screenshots/setting.png)
 
 ## 动效演示
-
-歌词行切换动画（进入动效，可在设置中调整速度、缓动、方向等）：
 
 | 位移淡入 | 缩放弹入 |
 |:---:|:---:|
@@ -38,81 +50,94 @@ Windows 桌面歌词工具。通过 [SMTC](https://learn.microsoft.com/windows/u
 |:---:|:---:|
 | ![扫光演示](screenshots/扫光演示.gif) | ![切歌动画演示](screenshots/切歌动画演示.gif) |
 
+## 3.0 新特性
+
+- **流光歌词**：按音节点亮双层柔光；长音持续呼吸，结束后平滑消散。无精确逐字数据时会自动降级，不伪造错误时间轴。
+- **封面极光**：缓存提取封面的主色、次色和强调色，生成缓慢流动的极光、轻量模糊底图与低频呼吸；整体透明度可独立控制。
+- **音频特征共享**：频谱、极简曲线和背景呼吸共用一次 WASAPI/FFT 分析，窗口隐藏时停止工作；采集不可用时自动回退模拟效果。
+- **视觉预设**：内置“经典 / 流光 / 沉浸”三套方案，并支持保存、应用、更新或删除最多 12 套用户预设。
+- **稳定动画布局**：封面动画始终围绕稳定中心运行，修复切歌错位、窗口漂移、常驻封面延迟显示和辉光矩形裁剪等问题。
+- **精确歌词时间轴**：保留逐字歌词中的开始时间与持续时间，使长音辉光、逐字推进和播放进度保持一致。
+
 ## 功能
 
 | 功能 | 说明 |
 |------|------|
-| **SMTC 同步** | 自动跟随 Spotify、网易云音乐、QQ 音乐、Apple Music、foobar2000 等任何发布 SMTC 会话的播放器 |
-| **播放器优先级** | 多播放器同时播放时按列表选择跟随，可忽略指定播放器（避免浏览器等会话干扰） |
-| **自动匹配歌词** | 网易云音乐 / QQ 音乐 / LRCLIB / 本地 LRC 目录多源自动匹配，来源顺序可配置 |
-| **逐字歌词（实验性）** | 网易云 yrc 逐字时间戳 → 卡拉 OK 式按字高亮；无逐字数据自动回退整行高亮 |
-| **翻译显示** | 原文下方显示翻译行（网易 tlyric / QQ trans），字号、行距可调 |
-| **已唱 / 未唱样式隔离** | 颜色、不透明度、描边、辉光均可独立设置；未唱段默认弱化，保证逐字明暗对比 |
-| **文字特效** | 阴影、描边（宽度 0.1–4）、辉光可自由组合，任意背景下保证可读性 |
-| **视觉预设** | 一键应用**经典 / 流光 / 沉浸**三套内置方案，也可命名保存、应用、更新或删除最多 12 套用户预设；辉光强度、动画幅度、背景不透明度和性能等级可统一微调 |
-| **行间切换动效** | 歌词行切换的进入/退场动画（淡入 / 位移 / 缩放 / 交叉淡化 / 逐字显现 / 扫光），速度、缓动、方向、模糊等均可自定义 |
-| **背景动效** | 歌词背面的视觉效果（默认关闭，可自由组合）：**封面极光**（缓存提取封面主色、次色与强调色，叠加轻量模糊底图、缓慢渐变流动和低频呼吸，整体透明度可调）、**频谱**（共享音频特征分析，失败自动回退模拟；柱状图/曲线/单曲线/极简曲线 × 底部/行中央/顶部，高度、颜色、辉光、镜像可调）、**飘雪**（强度、范围、大小、速度、颜色可调）、**雾层**（柔和流动光晕，颜色取自窗口背后内容与封面，可配色流动） |
-| **窗口锁定** | 锁定后鼠标穿透且不可拖动，歌词完全悬浮于桌面，不干扰任何操作 |
-| **歌词封面** | 常驻封面显示 + 切歌居中淡入动画（可同步显示歌名/歌手），尺寸、时长、方向、缓动可调 |
-| **播放控制** | 悬浮窗悬停显示上/下一曲、播放/暂停按钮，通过 SMTC 直接控制播放器 |
-| **位置预设** | 九宫格一键定位 + 水平/垂直百分比微调，窗口高度扩展方向可设 |
-| **手动校正** | 自动匹配不理想时手动指定歌词源/歌曲，支持单曲时间偏移 |
-| **全局时间偏移** | 歌词整体提前/延后微调 |
-| **托盘控制** | 显示/隐藏歌词、锁定、退出均可在托盘完成 |
-| **轻量** | 免安装、解压即用，无后台服务，静态渲染时 CPU 占用约 0% |
+| **SMTC 同步** | 自动跟随任何发布 Windows 系统媒体会话的播放器；多播放器同时运行时可配置跟随优先级和忽略列表 |
+| **多源歌词** | 网易云音乐、QQ 音乐、LRCLIB 与本地 LRC 目录自动匹配，来源顺序可配置 |
+| **逐字与翻译** | 支持精确逐字高亮、整行歌词自动降级和翻译行；可分别调整字号、颜色、行距与不透明度 |
+| **歌词视觉模式** | 经典模式保持清晰稳定；流光模式增加当前音节辉光、长音呼吸和释放余辉 |
+| **文字效果** | 已唱和未唱部分可分别配置颜色、描边、阴影与柔和辉光，文字主体与发光层独立绘制 |
+| **视觉预设** | 一键应用经典、流光、沉浸方案；用户预设只保存视觉设置，不改变窗口位置、播放器规则和歌词来源 |
+| **行间动画** | 淡入、位移、缩放、交叉淡化、逐字显现和扫光；支持速度、缓动、方向、距离与模糊微调 |
+| **封面极光** | 封面取色、渐变极光、模糊底图、暗色遮罩、流动速度、低频响应及整体透明度 |
+| **音频频谱** | 柱状、曲线、单曲线和极简曲线；支持镜像布局、位置、数量、强度、颜色、辉光和低频呼吸 |
+| **其他背景** | 可独立组合飘雪与雾层；所有背景效果均只在歌词窗口显示时运行 |
+| **歌词封面** | 常驻封面与切歌封面动画彼此独立；支持尺寸、方向、时长、透明度和缓动设置 |
+| **窗口控制** | 锁定后鼠标穿透；支持九宫格定位、位置微调、托盘控制、开机自启和暂停时隐藏 |
+| **播放控制** | 鼠标悬停显示上一曲、播放/暂停和下一曲按钮，通过 SMTC 控制当前播放器 |
+| **时间校正** | 支持单曲歌词源手动指定、单曲偏移与全局时间偏移 |
 
-## 使用
+## 下载与使用
 
-每个版本发布两种包，按需选择其一：
+在 [Releases](https://github.com/Zydr114/EasyDesktopLyrics/releases) 中，每个版本提供两种 Windows x64 软件包：
 
-| 包 | 说明 |
+| 软件包 | 适用场景 |
 |------|------|
-| `EasyDesktopLyrics-<版本>-win-x64.zip` | **轻量版**（框架依赖，约 45MB），需已安装 .NET 10 Runtime |
-| `EasyDesktopLyrics-<版本>-win-x64-standalone.zip` | **自包含版**（约 50MB），内置 .NET 10 运行时，免安装直接运行，零依赖 |
-下载解压后双击 `EasyDesktopLyrics.exe` 即可：
+| `EasyDesktopLyrics-<版本>-win-x64.zip` | **框架依赖版**，约 18 MB；需要预先安装 [.NET 10 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) |
+| `EasyDesktopLyrics-<版本>-win-x64-standalone.zip` | **自包含单文件版**，约 48 MB；已包含运行时，解压即可使用 |
 
-1. 打开任意支持的播放器开始播放，歌词窗口自动出现。
-2. 托盘图标 → 锁定歌词（鼠标穿透），歌词即完全悬浮于桌面。
+1. 下载并解压其中一种软件包。
+2. 双击 `EasyDesktopLyrics.exe`。
+3. 打开支持 SMTC 的播放器并开始播放，歌词窗口会自动显示。
+4. 通过托盘菜单或设置锁定歌词，使窗口进入鼠标穿透状态。
 
-> 首次运行会自动从各来源拉取歌词并缓存到 `%APPDATA%\EasyDesktopLyrics\`。
+首次获取的歌词会缓存在 `%APPDATA%\EasyDesktopLyrics\cache\lyrics\`。如需开机启动，可在“设置 → 显示”中开启。
 
-## 构建
+## 歌词来源
 
-环境要求：.NET 10 SDK、Windows 10 2004+。
+- **网易云音乐**：搜索、LRC、逐字 YRC 与翻译，无需登录。
+- **QQ 音乐**：搜索、LRC 与翻译。
+- **LRCLIB**：开放社区歌词库，对欧美和日韩歌曲覆盖较好。
+- **本地目录**：扫描指定文件夹中的 `*.lrc`，按歌曲名与歌手自动匹配。
 
-```bash
+自动匹配不理想时，可以在校正页面手动选择歌曲或调整歌词偏移。删除歌词缓存后，会在下次播放时重新获取。
+
+## 从源码构建
+
+要求：Windows 10 2004+、.NET 10 SDK。
+
+```powershell
 git clone https://github.com/Zydr114/EasyDesktopLyrics.git
 cd EasyDesktopLyrics
 dotnet build -c Release
 
-# 轻量版（框架依赖，需目标机安装 .NET 10 Runtime）
+# 框架依赖版
 dotnet publish -c Release -r win-x64 --self-contained false
 
-# 自包含单文件版（内置运行时，零依赖；取 publish 目录中的 EasyDesktopLyrics.exe 打包）
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+# 自包含单文件版
+dotnet publish -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true `
+  -p:EnableCompressionInSingleFile=true
 ```
-
-## 歌词来源
-
-- **网易云音乐**：搜索 + LRC + 逐字 yrc（weapi，无需登录）
-- **QQ 音乐**：搜索 + LRC（klyric 逐字不可用，仅行级）
-- **LRCLIB**：开放社区歌词库（欧美/日韩覆盖好）
-- **本地目录**：指定文件夹内的 `*.lrc` 文件，按曲名/歌手自动匹配
-
-歌词缓存于 `%APPDATA%\EasyDesktopLyrics\cache\lyrics\`，清空即强制重新拉取。
 
 ## 隐私
 
-- 应用不收集任何数据，不注册开机自启（除非自行配置）。
-- 歌词接口均为各平台非官方公开接口，仅供个人学习使用；请在符合平台条款的前提下使用。
+- 应用不收集或上传使用数据。
+- 开机自启默认关闭，仅在用户主动开启设置后注册。
+- 在线歌词来自对应平台或社区提供的接口，仅供个人使用；请遵守相关平台条款。
 
 ## 致谢
 
-- [BetterLyrics](https://github.com/jayfunc/BetterLyrics)：本次更新的背景动效（尤其是频谱可视化）参考了它的源码与设计思路，包括双声道镜像布局、时域自动增益、低音驱动呼吸缩放、频段补偿与平滑策略等。感谢作者的开源分享。
+- [BetterLyrics](https://github.com/jayfunc/BetterLyrics)：为逐音节发光、音频可视化和极简背景效果提供视觉灵感。
+- [Folia](https://github.com/chthollyphile/folia-major)：为歌词视觉模式、时间轴和效果分层提供架构思路。
+
+EasyDesktopLyrics 仅参考上述项目公开展示的视觉理念与效果组织方式，项目实现均基于 C#、Avalonia 与 Skia 独立完成。
 
 ## 第三方依赖
 
-- [FftSharp](https://github.com/swharden/FftSharp)（[MIT](https://licenses.nuget.org/MIT)）：频谱 FFT 变换库，用于背景动效的频谱分析。
+- [Avalonia](https://github.com/AvaloniaUI/Avalonia)（MIT）：跨平台 UI 框架。
+- [FftSharp](https://github.com/swharden/FftSharp)（MIT）：频谱 FFT 分析。
 
 ## License
 
