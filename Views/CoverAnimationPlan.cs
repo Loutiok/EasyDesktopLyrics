@@ -10,7 +10,8 @@ internal readonly record struct CoverVisualState(double X, double Y, double Scal
 /// 放大只通过以中心为原点的 Scale 完成，因此改变方向不会再混入尺寸向右下扩张的位移。
 /// </summary>
 internal readonly record struct CoverAnimationPlan(
-    CoverVisualState Start,
+    CoverVisualState PersistentStart,
+    CoverVisualState TransientStart,
     CoverVisualState Center,
     CoverVisualState PersistentEnd,
     CoverVisualState TransientEnd)
@@ -32,11 +33,12 @@ internal readonly record struct CoverAnimationPlan(
         var baseY = centerY - restingSize / 2;
         var offset = DirectionOffset(direction, distance);
 
-        var start = new CoverVisualState(baseX + offset.X, baseY + offset.Y, scale, 0);
+        var persistentStart = new CoverVisualState(persistentSlot.X, persistentSlot.Y, 1, 1);
+        var transientStart = new CoverVisualState(baseX + offset.X, baseY + offset.Y, scale, 0);
         var center = new CoverVisualState(baseX, baseY, scale, 1);
         var persistent = new CoverVisualState(persistentSlot.X, persistentSlot.Y, 1, 1);
         var transient = new CoverVisualState(baseX + offset.X, baseY + offset.Y, scale, 0);
-        return new CoverAnimationPlan(start, center, persistent, transient);
+        return new CoverAnimationPlan(persistentStart, transientStart, center, persistent, transient);
     }
 
     public static CoverVisualState Resting(Point slot, bool visible) =>

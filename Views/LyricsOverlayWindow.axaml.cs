@@ -1197,7 +1197,10 @@ public sealed partial class LyricsOverlayWindow : Window
                 OuterGrid.Bounds.Width, _coverSize, _coverAnimSize, CoverSlotOffset(),
                 _settingsService.Current.CoverAnimDirection,
                 _settingsService.Current.CoverAnimSlideDistance);
-            BeginCoverMotion(_coverPlan.Start, _coverPlan.Center);
+            var start = _vm.CoverEnabled
+                ? _coverPlan.PersistentStart
+                : _coverPlan.TransientStart;
+            BeginCoverMotion(start, _coverPlan.Center);
 
             EnterCoverTitle();
             _coverPosDirty = true;
@@ -1408,12 +1411,12 @@ public sealed partial class LyricsOverlayWindow : Window
         }, DispatcherPriority.Background);
     }
 
-    /// <summary>应用统一的 Translate + Scale + Opacity 状态；所有状态使用相同变换结构以保证可插值。</summary>
+    /// <summary>应用统一的 Scale + Translate + Opacity 状态；位移放在缩放之后，避免位移量被倍率放大。</summary>
     private void ApplyCoverVisual(CoverVisualState state)
     {
         var b = new TransformOperations.Builder(2);
-        b.AppendTranslate(state.X, state.Y);
         b.AppendScale(state.Scale, state.Scale);
+        b.AppendTranslate(state.X, state.Y);
         Cover.RenderTransform = b.Build();
         Cover.Opacity = state.Opacity;
     }
