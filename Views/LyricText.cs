@@ -22,12 +22,13 @@ public sealed class LyricText : Control
         (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7),
     };
 
-    /// <summary>层角色：0 = 整行平涂；1 = 已唱层（渐变遮罩露已唱段）；2 = 未唱层（渐变遮罩露未唱段）。</summary>
+    /// <summary>层角色：整行、已唱段、未唱段或指定字符。</summary>
     public enum ClipSideMode
     {
         None = 0,
         Left = 1,
         Right = 2,
+        Character = 3,
     }
 
     public static readonly StyledProperty<string?> TextProperty =
@@ -44,6 +45,10 @@ public sealed class LyricText : Control
     /// <summary>层角色（固定，由宿主设置）：Left=已唱层、Right=未唱层、None=平涂。</summary>
     public static readonly StyledProperty<ClipSideMode> HighlightClipProperty =
         AvaloniaProperty.Register<LyricText, ClipSideMode>(nameof(HighlightClip), ClipSideMode.None);
+
+    /// <summary>Character 遮罩模式绘制的字符索引；-1 = 不绘制。</summary>
+    public static readonly StyledProperty<int> MaskCharacterIndexProperty =
+        AvaloniaProperty.Register<LyricText, int>(nameof(MaskCharacterIndex), -1);
 
     /// <summary>行进入逐字显现进度 0~1（从左到右逐个字符点亮）；-1 = 禁用（正常渲染）。</summary>
     public static readonly StyledProperty<double> EnterProgressProperty =
@@ -97,6 +102,8 @@ public sealed class LyricText : Control
     private TextLayout? _strokeLayout;
     private bool _layoutDirty = true;
     private double[] _charLeft = [];
+    private int _characterMaskIndex = int.MinValue;
+    private IBrush? _characterMask;
 
     static LyricText()
     {
@@ -108,7 +115,7 @@ public sealed class LyricText : Control
             FillProperty, InactiveFillProperty, StrokeBrushProperty, StrokeEnabledProperty,
             StrokeThicknessProperty, InactiveStrokeEnabledProperty, InactiveStrokeBrushProperty,
             TextAlignmentProperty, HighlightLengthProperty, HighlightFractionProperty,
-            HighlightClipProperty, MaxTextWidthProperty,
+            HighlightClipProperty, MaskCharacterIndexProperty, MaxTextWidthProperty,
             EnterProgressProperty, ShineProgressProperty);
     }
 
@@ -134,6 +141,12 @@ public sealed class LyricText : Control
     {
         get => GetValue(HighlightClipProperty);
         set => SetValue(HighlightClipProperty, value);
+    }
+
+    public int MaskCharacterIndex
+    {
+        get => GetValue(MaskCharacterIndexProperty);
+        set => SetValue(MaskCharacterIndexProperty, value);
     }
 
     public double EnterProgress
@@ -264,6 +277,17 @@ public sealed class LyricText : Control
             return;
         }
 
+        // 指定字符层：用于当前音节辉光/释放余辉，只绘制目标字符且不参与逐字左右分段。
+        if (HighlightClip == ClipSideMode.Character)
+        {
+            var characterMask = BuildCharacterMask(body, MaskCharacterIndex);
+            if (characterMask == null)
+                return;
+            using (context.PushOpacityMask(characterMask, new Rect(0, 0, body.Width, body.Height)))
+                DrawBody(context, body, thickness);
+            return;
+        }
+
         // 平涂路径（无逐字数据 / 单色层）：整行单色。
         // 无逐字数据时没有"未唱段"概念 → 未唱侧层（Right：未唱层/未唱辉光）整体不绘制，
         // 否则未唱色/未唱辉光会作用到整行（非逐字歌词也被未唱辉光照亮）。
@@ -323,6 +347,8 @@ public sealed class LyricText : Control
 
     private void Rebuild()
     {
+        _characterMaskIndex = int.MinValue;
+        _characterMask = null;
         var text = Text;
         if (string.IsNullOrEmpty(text))
         {
@@ -417,6 +443,48 @@ public sealed class LyricText : Control
         return maskPlayed
             ? BuildGradient(layout, Colors.Black, Colors.Transparent)
             : BuildGradient(layout, Colors.Transparent, Colors.Black);
+    }
+
+    /// <summary>指定字符的柔边矩形遮罩；字形本身的 alpha 仍由 TextLayout 保留。</summary>
+    private IBrush? BuildCharacterMask(TextLayout layout, int characterIndex)
+    {
+        if (_characterMaskIndex == characterIndex)
+            return _characterMask;
+        _characterMaskIndex = characterIndex;
+        _characterMask = null;
+
+        var length = _charLeft.Length - 1;
+        if (characterIndex < 0 || characterIndex >= length || layout.Width <= 0)
+            return null;
+
+        var x0 = _charLeft[characterIndex];
+        var x1 = _charLeft[characterIndex + 1];
+        var characterWidth = Math.Max(x1 - x0, 0.001);
+        var feather = Math.Min(characterWidth * 0.18, 3);
+        var width = layout.Width;
+        var stops = new List<GradientStop>(6);
+
+        AddStop(stops, 0, x0 <= 0 ? Colors.Black : Colors.Transparent);
+        if (x0 > 0)
+        {
+            AddStop(stops, Math.Max(0, x0 - feather) / width, Colors.Transparent);
+            AddStop(stops, x0 / width, Colors.Black);
+        }
+        AddStop(stops, x1 / width, Colors.Black);
+        if (x1 < width)
+        {
+            AddStop(stops, Math.Min(width, x1 + feather) / width, Colors.Transparent);
+            AddStop(stops, 1, Colors.Transparent);
+        }
+
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Absolute),
+            EndPoint = new RelativePoint(width, 0, RelativeUnit.Absolute),
+        };
+        brush.GradientStops.AddRange(stops);
+        _characterMask = brush;
+        return _characterMask;
     }
 
     /// <summary>逐字渐变：每个字符左边界放一个颜色 stop（已唱=played / 未唱=unplayed），

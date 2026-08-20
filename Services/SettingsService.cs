@@ -55,6 +55,12 @@ public sealed class SettingsService
     /// <summary>确保 5 个歌词源都在列表中；旧版（仅网易云/QQ）迁移为通用排序列表。</summary>
     private static AppSettings Migrate(AppSettings s)
     {
+        if (s.LyricVisualMode is not ("classic" or "luminous"))
+            s.LyricVisualMode = "classic";
+        s.LuminousGlowStrength = Math.Clamp(s.LuminousGlowStrength, 0.2, 2.0);
+        s.LuminousLongNoteThresholdMs = Math.Clamp(s.LuminousLongNoteThresholdMs, 300, 2000);
+        s.LuminousReleaseMs = Math.Clamp(s.LuminousReleaseMs, 120, 600);
+
         // 过滤已不存在的源（如接口失效被移除的）
         s.LyricSources = s.LyricSources.Where(r => DefaultSourceOrder.Contains(r.SourceId)).ToList();
 

@@ -279,6 +279,80 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    // ---------- 歌词视觉模式 ----------
+
+    public IReadOnlyList<string> LyricVisualModeOptions { get; } = ["经典", "流光"];
+
+    private static readonly string[] LyricVisualModeValues = ["classic", "luminous"];
+
+    public int LyricVisualModeIndex
+    {
+        get
+        {
+            var index = Array.IndexOf(LyricVisualModeValues, _settings.Current.LyricVisualMode);
+            return index >= 0 ? index : 0;
+        }
+        set
+        {
+            if (value < 0 || value >= LyricVisualModeValues.Length)
+                return;
+            var mode = LyricVisualModeValues[value];
+            if (mode == _settings.Current.LyricVisualMode)
+                return;
+            _settings.Update(s => s.LyricVisualMode = mode);
+        }
+    }
+
+    public bool ShowLuminousOptions => _settings.Current.LyricVisualMode == "luminous";
+
+    public Color LuminousGlowColorValue
+    {
+        get => Color.TryParse(_settings.Current.LuminousGlowColorHex, out var color) ? color : Colors.White;
+        set
+        {
+            var hex = value.ToString().ToUpperInvariant();
+            if (hex == _settings.Current.LuminousGlowColorHex)
+                return;
+            _settings.Update(s => s.LuminousGlowColorHex = hex);
+        }
+    }
+
+    public double LuminousGlowStrengthVal
+    {
+        get => _settings.Current.LuminousGlowStrength;
+        set
+        {
+            var strength = Math.Round(Math.Clamp(value, 0.2, 2.0), 1);
+            if (Math.Abs(strength - _settings.Current.LuminousGlowStrength) < 0.05)
+                return;
+            _settings.Update(s => s.LuminousGlowStrength = strength);
+        }
+    }
+
+    public double LuminousLongNoteThresholdVal
+    {
+        get => _settings.Current.LuminousLongNoteThresholdMs;
+        set
+        {
+            var threshold = (int)Math.Round(Math.Clamp(value, 300, 2000));
+            if (threshold == _settings.Current.LuminousLongNoteThresholdMs)
+                return;
+            _settings.Update(s => s.LuminousLongNoteThresholdMs = threshold);
+        }
+    }
+
+    public double LuminousReleaseVal
+    {
+        get => _settings.Current.LuminousReleaseMs;
+        set
+        {
+            var release = (int)Math.Round(Math.Clamp(value, 120, 600));
+            if (release == _settings.Current.LuminousReleaseMs)
+                return;
+            _settings.Update(s => s.LuminousReleaseMs = release);
+        }
+    }
+
     public Color ShadowColorValue
     {
         get => Color.TryParse(_settings.Current.ShadowColorHex, out var c) ? c : Colors.Black;

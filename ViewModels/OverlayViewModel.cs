@@ -20,6 +20,9 @@ public sealed class OverlayViewModel : ObservableObject
         nameof(StrokeEnabled), nameof(StrokeBrush), nameof(StrokeThickness), nameof(LineSpacing),
         nameof(TextAlignment), nameof(GlowEnabled),
         nameof(InactiveStrokeEnabled), nameof(InactiveStrokeBrush), nameof(InactiveStrokeThickness), nameof(InactiveGlowEffect),
+        nameof(LyricVisualMode), nameof(ActiveCharacterIndex), nameof(ReleasedCharacterIndex),
+        nameof(LuminousGlowBrush), nameof(LuminousCoreGlowEffect), nameof(LuminousOuterGlowEffect),
+        nameof(LuminousCoreGlowOpacity), nameof(LuminousOuterGlowOpacity), nameof(LuminousAfterglowOpacity),
         nameof(CoverImage), nameof(CoverEnabled), nameof(CoverCutAnimation), nameof(CoverSizePct),
         nameof(WordHighlightLength), nameof(WordHighlightFraction),
         nameof(CoverTitle), nameof(CoverArtist),
@@ -52,6 +55,10 @@ public sealed class OverlayViewModel : ObservableObject
     private IEffect? _glowCache;
     private string _inactiveGlowKeyCache = "";
     private IEffect? _inactiveGlowCache;
+    private string _luminousGlowKeyCache = "";
+    private IBrush _luminousGlowBrushCache = Brushes.White;
+    private IEffect? _luminousCoreGlowCache;
+    private IEffect? _luminousOuterGlowCache;
 
     public OverlayViewModel(SettingsService settings, LyricsOrchestrator orchestrator, SmtcService smtc)
     {
@@ -420,6 +427,120 @@ public sealed class OverlayViewModel : ObservableObject
 
     /// <summary>正在唱字符的平滑渐变进度 0~1（与 WordHighlightLength 配合实现字符内点亮动画）。</summary>
     public double WordHighlightFraction => _orchestrator.CurrentWordFraction;
+
+    public string LyricVisualMode => S.LyricVisualMode;
+
+    public int ActiveCharacterIndex => _orchestrator.CurrentTimingFrame.ActiveCharacterIndex;
+
+    public int ReleasedCharacterIndex => _orchestrator.CurrentTimingFrame.ReleasedCharacterIndex;
+
+    public IBrush LuminousGlowBrush
+    {
+        get
+        {
+            EnsureLuminousGlowResources();
+            return _luminousGlowBrushCache;
+        }
+    }
+
+    public IEffect? LuminousCoreGlowEffect
+    {
+        get
+        {
+            EnsureLuminousGlowResources();
+            return _luminousCoreGlowCache;
+        }
+    }
+
+    public IEffect? LuminousOuterGlowEffect
+    {
+        get
+        {
+            EnsureLuminousGlowResources();
+            return _luminousOuterGlowCache;
+        }
+    }
+
+    public double LuminousCoreGlowOpacity => LuminousActiveEnvelope() * 0.95;
+
+    public double LuminousOuterGlowOpacity => LuminousActiveEnvelope() * 0.72;
+
+    public double LuminousAfterglowOpacity
+    {
+        get
+        {
+            var frame = _orchestrator.CurrentTimingFrame;
+            if (frame.ReleasedCharacterIndex < 0)
+                return 0;
+
+            var releaseMs = Math.Clamp(S.LuminousReleaseMs, 120, 600);
+            if (frame.ReleasedElapsedMs >= releaseMs)
+                return 0;
+
+            var release = 1 - SmoothStep(frame.ReleasedElapsedMs / (double)releaseMs);
+            var longNote = LongNoteFactor(frame.ReleasedCharacterDurationMs);
+            var strength = Math.Clamp(S.LuminousGlowStrength, 0.2, 2.0);
+            return Math.Clamp(TextOpacity * strength * release * (0.28 + longNote * 0.42), 0, 1);
+        }
+    }
+
+    private double LuminousActiveEnvelope()
+    {
+        var frame = _orchestrator.CurrentTimingFrame;
+        if (frame.ActiveCharacterIndex < 0 || frame.ActiveCharacterDurationMs <= 0)
+            return 0;
+
+        var duration = frame.ActiveCharacterDurationMs;
+        var elapsed = Math.Clamp(frame.HighlightFraction, 0, 1) * duration;
+        var attack = SmoothStep(elapsed / 120.0);
+        var releaseWindow = Math.Clamp(duration * 0.22, 70, 180);
+        var release = SmoothStep((duration - elapsed) / releaseWindow);
+        var longNote = LongNoteFactor(duration);
+        var pulse = 1 + Math.Sin(elapsed * Math.PI * 2 / 900.0) * longNote * 0.08;
+        var strength = Math.Clamp(S.LuminousGlowStrength, 0.2, 2.0);
+        return Math.Clamp(TextOpacity * strength * attack * release * (0.38 + longNote * 0.62) * pulse, 0, 1);
+    }
+
+    private double LongNoteFactor(long durationMs)
+    {
+        var threshold = Math.Clamp(S.LuminousLongNoteThresholdMs, 300, 2000);
+        return SmoothStep((durationMs - threshold) / (double)Math.Max(threshold * 2, 1));
+    }
+
+    private static double SmoothStep(double value)
+    {
+        var x = Math.Clamp(value, 0, 1);
+        return x * x * (3 - 2 * x);
+    }
+
+    private void EnsureLuminousGlowResources()
+    {
+        var coreRadius = Math.Clamp(S.FontSize * 0.3, 8, 18);
+        var outerRadius = Math.Clamp(S.FontSize * 0.8, 20, 42);
+        var key = $"{S.LuminousGlowColorHex}|{coreRadius:F1}|{outerRadius:F1}";
+        if (_luminousGlowKeyCache == key)
+            return;
+
+        _luminousGlowKeyCache = key;
+        var color = Color.TryParse(S.LuminousGlowColorHex, out var parsed) ? parsed : Colors.White;
+        _luminousGlowBrushCache = new SolidColorBrush(color);
+        _luminousCoreGlowCache = new DropShadowEffect
+        {
+            OffsetX = 0,
+            OffsetY = 0,
+            BlurRadius = coreRadius,
+            Opacity = 0.95,
+            Color = color,
+        };
+        _luminousOuterGlowCache = new DropShadowEffect
+        {
+            OffsetX = 0,
+            OffsetY = 0,
+            BlurRadius = outerRadius,
+            Opacity = 0.72,
+            Color = color,
+        };
+    }
 
     public double TextOpacity => Math.Clamp(S.Opacity, 0.05, 1.0);
 

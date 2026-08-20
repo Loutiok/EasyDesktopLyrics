@@ -23,6 +23,7 @@ public sealed partial class LyricsOverlayWindow : Window
     private readonly OverlayViewModel _vm;
     private readonly SettingsService _settingsService;
     private readonly BackgroundFxLayer _bgFx;
+    private readonly LyricVisualModeRegistry _lyricVisualModes = LyricVisualModeRegistry.CreateDefault();
     private readonly DispatcherTimer _topmostTimer;
     private readonly DispatcherTimer _hideControlsTimer;
     private readonly DispatcherTimer _coverStageTimer;
@@ -178,9 +179,12 @@ public sealed partial class LyricsOverlayWindow : Window
         _settingsService.Changed += ApplyCoverAnimationStyle;
         _settingsService.Changed += OnLineTransitionSettingsChanged;
 
-        _mainGrid.SizeChanged += (_, _) => UpdateCoverSize();
-        // 歌词行宽度变化（不同行文本长度）时封面位置跟随（靠右布局依赖歌词宽度）
-        RootPanel.SizeChanged += (_, _) => UpdateCoverPosition();
+        // 视觉模式切换后主行控件会替换，因此统一观察稳定的 RootPanel 宿主。
+        RootPanel.SizeChanged += (_, _) =>
+        {
+            UpdateCoverSize();
+            UpdateCoverPosition();
+        };
         _vm.PropertyChanged += OnVmChanged;
         _vm.LineChanged += OnLineChanged;
         SizeChanged += OnSizeChanged;
@@ -231,9 +235,32 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private void BuildTextLayers()
     {
-        var registry = LyricVisualModeRegistry.CreateDefault();
-        _lyricVisualMode = registry.Create(LyricVisualModeIds.Classic, _vm, RootPanel);
+        try
+        {
+            _lyricVisualMode = _lyricVisualModes.Create(_vm.LyricVisualMode, _vm, RootPanel);
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"lyric visual mode '{_vm.LyricVisualMode}', fallback to classic", ex);
+            _lyricVisualMode = _lyricVisualModes.Create(LyricVisualModeIds.Classic, _vm, RootPanel);
+        }
         ApplyAlignment();
+    }
+
+    private void SwitchLyricVisualMode()
+    {
+        if (string.Equals(_lyricVisualMode.Id, _vm.LyricVisualMode, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        CancelLineAnimation();
+        BuildTextLayers();
+        SyncLastLineText();
+        Dispatcher.UIThread.Post(() =>
+        {
+            UpdateCoverSize();
+            UpdateCoverPosition();
+            SyncWindowHeight();
+        });
     }
 
     private void OnVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -292,6 +319,8 @@ public sealed partial class LyricsOverlayWindow : Window
         else if (e.PropertyName is nameof(OverlayViewModel.GlowEffect)
                  or nameof(OverlayViewModel.InactiveGlowEffect))
             _lyricVisualMode.RefreshGlow();
+        else if (e.PropertyName == nameof(OverlayViewModel.LyricVisualMode))
+            SwitchLyricVisualMode();
         else if (e.PropertyName == nameof(OverlayViewModel.TextAlignment))
             ApplyAlignment();
         else if (e.PropertyName == nameof(OverlayViewModel.CoverTitleEnabled))

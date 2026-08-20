@@ -85,6 +85,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         nameof(InactiveColorIndependent), nameof(InactiveColorValue), nameof(InactiveOpacityVal),
         nameof(InactiveStrokeEnabled), nameof(InactiveStrokeColorValue), nameof(InactiveStrokeThicknessVal),
         nameof(InactiveGlowEnabled), nameof(InactiveGlowColorValue), nameof(InactiveGlowRadiusVal),
+        nameof(LyricVisualModeIndex), nameof(ShowLuminousOptions), nameof(LuminousGlowColorValue),
+        nameof(LuminousGlowStrengthVal), nameof(LuminousLongNoteThresholdVal), nameof(LuminousReleaseVal),
         nameof(ShadowBlurVal), nameof(ShadowOffsetYVal),
         nameof(TransFontSizeVal), nameof(LineSpacingVal), nameof(TextOpacity), nameof(MaxWidth),
         nameof(ShowTranslation), nameof(HideWhenPaused), nameof(ShowTitleWhenNoLyric), nameof(AutoStartEnabled), nameof(IsLocked),

@@ -9,6 +9,7 @@ namespace EasyDesktopLyrics.Services;
 internal static class LyricsTimelineBuilder
 {
     private const long LastWordFallbackMs = 3000;
+    private const long RecentReleaseWindowMs = 600;
 
     public static LyricDocument AssignCharacterTimings(LyricDocument document)
     {
@@ -65,6 +66,56 @@ internal static class LyricsTimelineBuilder
 
         return times;
     }
+
+    /// <summary>计算指定播放位置的离散/连续歌词状态；最近释放字符只保留 600ms，避免无动画时持续刷新。</summary>
+    public static LyricTimingFrame Evaluate(LyricLine line, long positionMs)
+    {
+        if (line.CharTimes is not { Count: > 0 } times)
+            return LyricTimingFrame.None;
+
+        var completed = 0;
+        var releasedIndex = -1;
+        var releasedDuration = 0L;
+        var releasedElapsed = 0L;
+
+        for (var index = 0; index < times.Count; index++)
+        {
+            var timing = times[index];
+            var duration = Math.Max(timing.EndMs - timing.StartMs, 1);
+            if (timing.EndMs <= positionMs)
+            {
+                completed = index + 1;
+                releasedIndex = index;
+                releasedDuration = duration;
+                releasedElapsed = positionMs - timing.EndMs;
+                continue;
+            }
+
+            var release = RecentRelease(releasedIndex, releasedDuration, releasedElapsed);
+            if (positionMs < timing.StartMs)
+            {
+                return new LyricTimingFrame(
+                    completed, 0, -1, 0,
+                    release.Index, release.DurationMs, release.ElapsedMs);
+            }
+
+            var fraction = Math.Clamp((positionMs - timing.StartMs) / (double)duration, 0, 1);
+            return new LyricTimingFrame(
+                completed, fraction, index, duration,
+                release.Index, release.DurationMs, release.ElapsedMs);
+        }
+
+        var finalRelease = RecentRelease(releasedIndex, releasedDuration, releasedElapsed);
+        return new LyricTimingFrame(
+            times.Count, 1, -1, 0,
+            finalRelease.Index, finalRelease.DurationMs, finalRelease.ElapsedMs);
+    }
+
+    private static (int Index, long DurationMs, long ElapsedMs) RecentRelease(
+        int index, long durationMs, long elapsedMs) =>
+        index >= 0 && elapsedMs >= 0 && elapsedMs <= RecentReleaseWindowMs
+            ? (index, durationMs, elapsedMs)
+            : (-1, 0, 0);
 
     private static long? ResolveLineEnd(LyricLine line, long? nextLineStart)
     {

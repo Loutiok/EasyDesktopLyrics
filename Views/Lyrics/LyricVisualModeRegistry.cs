@@ -6,6 +6,7 @@ namespace EasyDesktopLyrics.Views.Lyrics;
 internal static class LyricVisualModeIds
 {
     public const string Classic = "classic";
+    public const string Luminous = "luminous";
 }
 
 /// <summary>
@@ -20,6 +21,7 @@ internal sealed class LyricVisualModeRegistry
     {
         var registry = new LyricVisualModeRegistry();
         registry.Register(LyricVisualModeIds.Classic, static (vm, host) => new ClassicLyricVisualMode(vm, host));
+        registry.Register(LyricVisualModeIds.Luminous, static (vm, host) => new LuminousLyricVisualMode(vm, host));
         return registry;
     }
 

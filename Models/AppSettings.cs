@@ -36,6 +36,16 @@ public sealed class AppSettings
     public string InactiveGlowColorHex { get; set; } = "#FFFFFF";
     /// <summary>未唱段辉光强度（与已唱段辉光独立）。</summary>
     public double InactiveGlowRadius { get; set; } = 14;
+    /// <summary>歌词视觉模式：classic / luminous。</summary>
+    public string LyricVisualMode { get; set; } = "classic";
+    /// <summary>流光模式当前音节的光色。</summary>
+    public string LuminousGlowColorHex { get; set; } = "#FFFFFF";
+    /// <summary>流光模式总体强度（0.2–2.0）。</summary>
+    public double LuminousGlowStrength { get; set; } = 1.0;
+    /// <summary>达到该持续时间后逐渐增强为长音辉光。</summary>
+    public int LuminousLongNoteThresholdMs { get; set; } = 650;
+    /// <summary>音节结束后的余辉释放时长。</summary>
+    public int LuminousReleaseMs { get; set; } = 420;
     /// <summary>翻译行字号，=0 时自动取正文字号的 0.6 倍。</summary>
     public double TransFontSize { get; set; }
     /// <summary>两行歌词间距（DIP）。</summary>

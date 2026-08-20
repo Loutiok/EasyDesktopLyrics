@@ -6,6 +6,55 @@
              x:DataType="vm:SettingsViewModel">
 
   <StackPanel Spacing="12">
+    <!-- 歌词视觉模式 -->
+    <Border Classes="card">
+      <StackPanel Spacing="10">
+        <StackPanel Spacing="2">
+          <TextBlock Classes="cardTitle" Text="歌词视觉模式" />
+          <TextBlock Classes="cardDesc"
+                     Text="经典模式保持原有效果；流光模式为当前音节增加双层柔光，并让长音持续呼吸、结束后平滑消散。" />
+        </StackPanel>
+        <Grid ColumnDefinitions="110,*" ColumnSpacing="10">
+          <TextBlock Classes="sectionLabel" Text="模式" />
+          <ComboBox Grid.Column="1" ItemsSource="{Binding LyricVisualModeOptions}"
+                    SelectedIndex="{Binding LyricVisualModeIndex, Mode=TwoWay}"
+                    Width="160" HorizontalAlignment="Left" />
+        </Grid>
+        <Border IsVisible="{Binding ShowLuminousOptions}" Margin="0,4,0,0">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="110,*" ColumnSpacing="10">
+              <TextBlock Classes="sectionLabel" Text="流光颜色" />
+              <local:ColorPicker Grid.Column="1" Color="{Binding LuminousGlowColorValue, Mode=TwoWay}" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="流光强度" />
+              <Slider Grid.Column="1" Minimum="0.2" Maximum="2" TickFrequency="0.1"
+                      Value="{Binding LuminousGlowStrengthVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding LuminousGlowStrengthVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F1}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="长音阈值 (ms)" />
+              <Slider Grid.Column="1" Minimum="300" Maximum="2000" TickFrequency="50"
+                      Value="{Binding LuminousLongNoteThresholdVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding LuminousLongNoteThresholdVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F0}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <Grid ColumnDefinitions="110,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="余辉时长 (ms)" />
+              <Slider Grid.Column="1" Minimum="120" Maximum="600" TickFrequency="20"
+                      Value="{Binding LuminousReleaseVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding LuminousReleaseVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F0}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Border>
+
     <!-- 特效 -->
     <Border Classes="card">
       <StackPanel Spacing="10">
