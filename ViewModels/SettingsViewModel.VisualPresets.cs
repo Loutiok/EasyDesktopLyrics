@@ -1,32 +1,70 @@
+using System.Collections.ObjectModel;
 using EasyDesktopLyrics.Models;
+using EasyDesktopLyrics.Services;
 
 namespace EasyDesktopLyrics.ViewModels;
 
-/// <summary>设置首页：三套稳定视觉预设与四项跨效果高级参数。</summary>
+public sealed record UserVisualPresetItem(string Id, string Name, string Description);
+
+/// <summary>设置首页：内置预设、用户命名预设与四项跨效果高级参数。</summary>
 public sealed partial class SettingsViewModel
 {
+    private string _newVisualPresetName = "";
+    private string _visualPresetStatus = "";
+
     public RelayCommand ApplyVisualPresetCommand { get; }
+    public RelayCommand SaveUserVisualPresetCommand { get; }
+    public RelayCommand ApplyUserVisualPresetCommand { get; }
+    public RelayCommand UpdateUserVisualPresetCommand { get; }
+    public RelayCommand DeleteUserVisualPresetCommand { get; }
+
+    public ObservableCollection<UserVisualPresetItem> UserVisualPresets { get; } = [];
 
     public string ActiveVisualPresetId => _settings.Current.VisualPresetId;
 
-    public string ActiveVisualPresetName => ActiveVisualPresetId switch
+    public string ActiveVisualPresetName
     {
-        "classic" => "经典",
-        "luminous" => "流光",
-        "immersive" => "沉浸",
-        _ => "自定义",
-    };
-
-    /// <summary>旧配置尚未应用预设时，按其真实歌词/背景状态选择最接近的预览。</summary>
-    public string VisualPreviewModeId => ActiveVisualPresetId != "custom"
-        ? ActiveVisualPresetId
-        : _settings.Current.BackgroundFx.CoverAurora.Enabled
-            ? "immersive"
-            : _settings.Current.LyricVisualMode == "luminous" ? "luminous" : "classic";
+        get
+        {
+            var id = ActiveVisualPresetId;
+            if (id.StartsWith("user:", StringComparison.OrdinalIgnoreCase))
+            {
+                var presetId = id[5..];
+                return _settings.Current.UserVisualPresets
+                    .FirstOrDefault(p => p.Id.Equals(presetId, StringComparison.OrdinalIgnoreCase))?.Name ?? "自定义";
+            }
+            return id switch
+            {
+                "classic" => "经典",
+                "luminous" => "流光",
+                "immersive" => "沉浸",
+                _ => "自定义",
+            };
+        }
+    }
 
     public bool IsClassicVisualPreset => ActiveVisualPresetId == "classic";
     public bool IsLuminousVisualPreset => ActiveVisualPresetId == "luminous";
     public bool IsImmersiveVisualPreset => ActiveVisualPresetId == "immersive";
+    public bool HasNoUserVisualPresets => UserVisualPresets.Count == 0;
+
+    public string NewVisualPresetName
+    {
+        get => _newVisualPresetName;
+        set
+        {
+            var normalized = value.Length <= 24 ? value : value[..24];
+            if (!Set(ref _newVisualPresetName, normalized))
+                return;
+            VisualPresetStatus = "";
+        }
+    }
+
+    public string VisualPresetStatus
+    {
+        get => _visualPresetStatus;
+        private set => Set(ref _visualPresetStatus, value);
+    }
 
     /// <summary>统一辉光强度：同时调整歌词流光、经典辉光半径和频谱辉光。</summary>
     public double VisualGlowStrengthVal
@@ -37,7 +75,7 @@ public sealed partial class SettingsViewModel
             var strength = Math.Round(Math.Clamp(value, 0.2, 2), 1);
             if (Math.Abs(strength - _settings.Current.LuminousGlowStrength) < 0.05)
                 return;
-            _settings.Update(s => ApplyGlowStrength(s, strength));
+            _settings.Update(s => VisualPresetService.ApplyGlowStrength(s, strength));
         }
     }
 
@@ -50,7 +88,7 @@ public sealed partial class SettingsViewModel
             var amplitude = Math.Round(Math.Clamp(value, 0, 100));
             if (Math.Abs(amplitude - VisualAnimationAmplitudeVal) < 1)
                 return;
-            _settings.Update(s => ApplyAnimationAmplitude(s, amplitude));
+            _settings.Update(s => VisualPresetService.ApplyAnimationAmplitude(s, amplitude));
         }
     }
 
@@ -63,7 +101,7 @@ public sealed partial class SettingsViewModel
             var opacity = Math.Round(Math.Clamp(value, 0, 1), 2);
             if (Math.Abs(opacity - VisualBackgroundOpacityVal) < 0.01)
                 return;
-            _settings.Update(s => ApplyBackgroundOpacity(s, opacity));
+            _settings.Update(s => VisualPresetService.ApplyBackgroundOpacity(s, opacity));
         }
     }
 
@@ -89,148 +127,125 @@ public sealed partial class SettingsViewModel
             var background = _settings.Current.BackgroundFx;
             if (background.Fps == targetFps && background.Spectrum.BandCount == targetBands)
                 return;
-            _settings.Update(s => ApplyPerformanceLevel(s, level));
+            _settings.Update(s => VisualPresetService.ApplyPerformanceLevel(s, level));
         }
     }
 
     private void ApplyVisualPreset(object? parameter)
     {
-        if (parameter is not string id || id is not ("classic" or "luminous" or "immersive"))
+        if (parameter is not string id)
             return;
+        _settings.Update(s => VisualPresetService.ApplyBuiltIn(s, id));
+        VisualPresetStatus = "";
+    }
 
+    private void SaveUserVisualPreset()
+    {
+        var name = NewVisualPresetName.Trim();
+        if (name.Length == 0)
+        {
+            VisualPresetStatus = "请输入预设名称。";
+            return;
+        }
+
+        var existing = _settings.Current.UserVisualPresets
+            .FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (existing == null && _settings.Current.UserVisualPresets.Count >= 12)
+        {
+            VisualPresetStatus = "最多保存 12 个用户预设。";
+            return;
+        }
+
+        var snapshot = VisualPresetService.Capture(_settings.Current);
+        var activeId = existing?.Id ?? Guid.NewGuid().ToString("N");
         _settings.Update(s =>
         {
-            s.VisualPresetId = id;
-            s.ShadowEnabled = true;
-            s.InactiveGlowEnabled = false;
-            s.BackgroundFx.Snow.Enabled = false;
-            s.BackgroundFx.Fog.Enabled = false;
-
-            switch (id)
+            var target = s.UserVisualPresets
+                .FirstOrDefault(p => p.Id.Equals(activeId, StringComparison.OrdinalIgnoreCase));
+            if (target == null)
             {
-                case "classic":
-                    ApplyClassicPreset(s);
-                    break;
-                case "luminous":
-                    ApplyLuminousPreset(s);
-                    break;
-                case "immersive":
-                    ApplyImmersivePreset(s);
-                    break;
+                s.UserVisualPresets.Add(new UserVisualPreset
+                {
+                    Id = activeId,
+                    Name = name,
+                    Snapshot = snapshot,
+                });
             }
+            else
+            {
+                target.Name = name;
+                target.Snapshot = snapshot;
+            }
+            s.VisualPresetId = $"user:{activeId}";
         });
+
+        RefreshUserVisualPresets();
+        NewVisualPresetName = "";
+        VisualPresetStatus = existing == null ? $"已保存“{name}”。" : $"已覆盖同名预设“{name}”。";
     }
 
-    private static void ApplyClassicPreset(AppSettings s)
+    private void ApplyUserVisualPreset(object? parameter)
     {
-        s.LyricVisualMode = "classic";
-        s.GlowEnabled = true;
-        s.LineTransitionEnabled = true;
-        s.LineTransitionType = "Fade";
-        s.LineTransitionDurationMs = 300;
-        s.LineTransitionEasing = "Quadratic";
-        s.BackgroundFx.CoverAurora.Enabled = false;
-        s.BackgroundFx.Spectrum.Enabled = false;
-        ApplyGlowStrength(s, 0.7);
-        ApplyAnimationAmplitude(s, 20);
-        ApplyBackgroundOpacity(s, 0.65);
-        ApplyPerformanceLevel(s, 0);
-    }
-
-    private static void ApplyLuminousPreset(AppSettings s)
-    {
-        s.LyricVisualMode = "luminous";
-        s.GlowEnabled = false;
-        s.LineTransitionEnabled = true;
-        s.LineTransitionType = "Crossfade";
-        s.LineTransitionDurationMs = 360;
-        s.LineTransitionEasing = "Sine";
-        s.BackgroundFx.CoverAurora.Enabled = false;
-        ConfigureWaveBand(s.BackgroundFx.Spectrum, opacity: 0.72, width: 72);
-        ApplyGlowStrength(s, 1.3);
-        ApplyAnimationAmplitude(s, 38);
-        ApplyBackgroundOpacity(s, 0.72);
-        ApplyPerformanceLevel(s, 1);
-    }
-
-    private static void ApplyImmersivePreset(AppSettings s)
-    {
-        s.LyricVisualMode = "luminous";
-        s.GlowEnabled = false;
-        s.LineTransitionEnabled = true;
-        s.LineTransitionType = "Slide";
-        s.LineTransitionDurationMs = 420;
-        s.LineTransitionEasing = "Sine";
-        s.LineTransitionDirection = 2;
-        s.LineTransitionSlideBlurEnabled = true;
-
-        var aurora = s.BackgroundFx.CoverAurora;
-        aurora.Enabled = true;
-        aurora.Opacity = 0.58;
-        aurora.CoverOpacity = 0.30;
-        aurora.BlurRadius = 24;
-        aurora.DimAmount = 0.30;
-        aurora.FlowSpeed = 0.42;
-        aurora.AudioReactive = true;
-
-        ConfigureWaveBand(s.BackgroundFx.Spectrum, opacity: 0.58, width: 100);
-        ApplyGlowStrength(s, 1.6);
-        ApplyAnimationAmplitude(s, 58);
-        ApplyBackgroundOpacity(s, 0.78);
-        ApplyPerformanceLevel(s, 1);
-    }
-
-    private static void ConfigureWaveBand(SpectrumFxSettings spectrum, double opacity, double width)
-    {
-        spectrum.Enabled = true;
-        spectrum.Style = "WaveBand";
-        spectrum.Position = "Center";
-        spectrum.Intensity = 90;
-        spectrum.WidthPct = width;
-        spectrum.CenterBass = true;
-        spectrum.GlowEnabled = true;
-        spectrum.Opacity = opacity;
-    }
-
-    private static void ApplyGlowStrength(AppSettings s, double strength)
-    {
-        strength = Math.Clamp(strength, 0.2, 2);
-        s.LuminousGlowStrength = strength;
-        s.GlowRadius = 4 + strength * 14;
-        s.BackgroundFx.Spectrum.GlowStrength = strength;
-    }
-
-    private static void ApplyAnimationAmplitude(AppSettings s, double amplitude)
-    {
-        var normalized = Math.Clamp(amplitude, 0, 100) / 100.0;
-        s.LineTransitionDistance = normalized * 24;
-        s.LineTransitionScale = Math.Clamp(0.97 - normalized * 0.19, 0.3, 0.95);
-        s.LineTransitionSlideBlurRadius = normalized * 8;
-        s.CoverAnimSlideDistance = normalized * 20;
-        s.CoverTitleSlideDistance = normalized * 20;
-        s.BackgroundFx.CoverAurora.AudioResponse = normalized * 0.65;
-        s.BackgroundFx.Spectrum.Breathing = (int)Math.Round(normalized * 55);
-    }
-
-    private static void ApplyBackgroundOpacity(AppSettings s, double opacity)
-    {
-        opacity = Math.Clamp(opacity, 0, 1);
-        s.BackgroundFx.CoverAurora.OverallOpacity = opacity;
-        s.BackgroundFx.Spectrum.Opacity = Math.Max(0.05, opacity);
-        s.BackgroundFx.Fog.Opacity = opacity;
-        s.BackgroundFx.Snow.Opacity = opacity;
-    }
-
-    private static void ApplyPerformanceLevel(AppSettings s, int level)
-    {
-        var (fps, bands, smoothing) = level switch
+        var preset = FindUserPreset(parameter);
+        if (preset == null)
+            return;
+        _settings.Update(s =>
         {
-            0 => (30, 32, 4),
-            2 => (90, 96, 3),
-            _ => (60, 64, 4),
-        };
-        s.BackgroundFx.Fps = fps;
-        s.BackgroundFx.Spectrum.BandCount = bands;
-        s.BackgroundFx.Spectrum.Smoothing = smoothing;
+            VisualPresetService.ApplySnapshot(s, preset.Snapshot);
+            s.VisualPresetId = $"user:{preset.Id}";
+        });
+        VisualPresetStatus = $"已应用“{preset.Name}”。";
+    }
+
+    private void UpdateUserVisualPreset(object? parameter)
+    {
+        var preset = FindUserPreset(parameter);
+        if (preset == null)
+            return;
+        var snapshot = VisualPresetService.Capture(_settings.Current);
+        _settings.Update(s =>
+        {
+            var target = s.UserVisualPresets.First(p => p.Id == preset.Id);
+            target.Snapshot = snapshot;
+            s.VisualPresetId = $"user:{target.Id}";
+        });
+        RefreshUserVisualPresets();
+        VisualPresetStatus = $"已用当前效果更新“{preset.Name}”。";
+    }
+
+    private void DeleteUserVisualPreset(object? parameter)
+    {
+        var preset = FindUserPreset(parameter);
+        if (preset == null)
+            return;
+        _settings.Update(s =>
+        {
+            s.UserVisualPresets.RemoveAll(p => p.Id == preset.Id);
+            if (s.VisualPresetId == $"user:{preset.Id}")
+                s.VisualPresetId = "custom";
+        });
+        RefreshUserVisualPresets();
+        VisualPresetStatus = $"已删除“{preset.Name}”。";
+    }
+
+    private UserVisualPreset? FindUserPreset(object? parameter)
+    {
+        var id = parameter as string;
+        return id == null
+            ? null
+            : _settings.Current.UserVisualPresets.FirstOrDefault(p => p.Id == id);
+    }
+
+    private void RefreshUserVisualPresets()
+    {
+        UserVisualPresets.Clear();
+        foreach (var preset in _settings.Current.UserVisualPresets)
+        {
+            UserVisualPresets.Add(new UserVisualPresetItem(
+                preset.Id,
+                preset.Name,
+                VisualPresetService.Describe(preset.Snapshot)));
+        }
+        RaiseMany(nameof(HasNoUserVisualPresets), nameof(ActiveVisualPresetName));
     }
 }

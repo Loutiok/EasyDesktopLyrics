@@ -85,7 +85,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         nameof(InactiveColorIndependent), nameof(InactiveColorValue), nameof(InactiveOpacityVal),
         nameof(InactiveStrokeEnabled), nameof(InactiveStrokeColorValue), nameof(InactiveStrokeThicknessVal),
         nameof(InactiveGlowEnabled), nameof(InactiveGlowColorValue), nameof(InactiveGlowRadiusVal),
-        nameof(ActiveVisualPresetId), nameof(ActiveVisualPresetName), nameof(VisualPreviewModeId),
+        nameof(ActiveVisualPresetId), nameof(ActiveVisualPresetName),
         nameof(IsClassicVisualPreset), nameof(IsLuminousVisualPreset), nameof(IsImmersiveVisualPreset),
         nameof(VisualGlowStrengthVal), nameof(VisualAnimationAmplitudeVal),
         nameof(VisualBackgroundOpacityVal), nameof(VisualPerformanceLevelIndex),
@@ -175,6 +175,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         ClearCacheCommand = new RelayCommand(ClearCache);
         RefreshSessionsCommand = new RelayCommand(RefreshPlayerRules);
         ApplyVisualPresetCommand = new RelayCommand(ApplyVisualPreset);
+        SaveUserVisualPresetCommand = new RelayCommand(SaveUserVisualPreset);
+        ApplyUserVisualPresetCommand = new RelayCommand(ApplyUserVisualPreset);
+        UpdateUserVisualPresetCommand = new RelayCommand(UpdateUserVisualPreset);
+        DeleteUserVisualPresetCommand = new RelayCommand(DeleteUserVisualPreset);
 
         SnapPresetCommand = new RelayCommand(p =>
         {
@@ -189,6 +193,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         RefreshPlayerRules();
         RefreshLyricSources();
         SyncFromTrack(force: true);
+        RefreshUserVisualPresets();
     }
 
     // ---------- 导航 ----------

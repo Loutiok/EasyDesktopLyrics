@@ -57,7 +57,31 @@ public sealed class SettingsService
     {
         if (s.LyricVisualMode is not ("classic" or "luminous"))
             s.LyricVisualMode = "classic";
-        if (s.VisualPresetId is not ("custom" or "classic" or "luminous" or "immersive"))
+        s.UserVisualPresets ??= [];
+        var seenPresetIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        s.UserVisualPresets = s.UserVisualPresets
+            .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Name))
+            .Select(p =>
+            {
+                p.Id = string.IsNullOrWhiteSpace(p.Id) || !seenPresetIds.Add(p.Id)
+                    ? Guid.NewGuid().ToString("N")
+                    : p.Id;
+                p.Name = p.Name.Trim()[..Math.Min(p.Name.Trim().Length, 24)];
+                p.Snapshot ??= new VisualPresetSnapshot();
+                p.Snapshot.BackgroundFx ??= new BackgroundFxSettings();
+                p.Snapshot.BackgroundFx.CoverAurora ??= new CoverAuroraFxSettings();
+                p.Snapshot.BackgroundFx.Spectrum ??= new SpectrumFxSettings();
+                p.Snapshot.BackgroundFx.Snow ??= new SnowFxSettings();
+                p.Snapshot.BackgroundFx.Fog ??= new FogFxSettings();
+                return p;
+            })
+            .Take(12)
+            .ToList();
+
+        var builtInPreset = s.VisualPresetId is "custom" or "classic" or "luminous" or "immersive";
+        var userPreset = s.VisualPresetId.StartsWith("user:", StringComparison.OrdinalIgnoreCase) &&
+            s.UserVisualPresets.Any(p => $"user:{p.Id}".Equals(s.VisualPresetId, StringComparison.OrdinalIgnoreCase));
+        if (!builtInPreset && !userPreset)
             s.VisualPresetId = "custom";
         s.LuminousGlowStrength = Math.Clamp(s.LuminousGlowStrength, 0.2, 2.0);
         s.LuminousLongNoteThresholdMs = Math.Clamp(s.LuminousLongNoteThresholdMs, 300, 2000);

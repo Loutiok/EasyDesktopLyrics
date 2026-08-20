@@ -38,8 +38,10 @@ public sealed class AppSettings
     public double InactiveGlowRadius { get; set; } = 14;
     /// <summary>歌词视觉模式：classic / luminous。</summary>
     public string LyricVisualMode { get; set; } = "classic";
-    /// <summary>最近应用的视觉预设：custom / classic / luminous / immersive。</summary>
+    /// <summary>最近应用的视觉预设：custom / classic / luminous / immersive / user:{id}。</summary>
     public string VisualPresetId { get; set; } = "custom";
+    /// <summary>用户保存的命名视觉预设。</summary>
+    public List<UserVisualPreset> UserVisualPresets { get; set; } = [];
     /// <summary>流光模式当前音节的光色。</summary>
     public string LuminousGlowColorHex { get; set; } = "#FFFFFF";
     /// <summary>流光模式总体强度（0.2–2.0）。</summary>

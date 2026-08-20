@@ -1,7 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:EasyDesktopLyrics.ViewModels"
-             xmlns:local="using:EasyDesktopLyrics.Views"
              x:Class="EasyDesktopLyrics.Views.VisualPresetSettingsView"
              x:DataType="vm:SettingsViewModel">
 
@@ -73,17 +72,51 @@
     </Border>
 
     <Border Classes="card">
-      <StackPanel Spacing="9">
+      <StackPanel Spacing="10">
         <StackPanel Spacing="2">
-          <TextBlock Classes="cardTitle" Text="动态预览" />
-          <TextBlock Classes="cardDesc" Text="预览使用合成节拍，不会打开音频捕获，也不会改变当前歌曲的歌词时间轴。" />
+          <TextBlock Classes="cardTitle" Text="我的预设" />
+          <TextBlock Classes="cardDesc"
+                     Text="保存当前文字效果、歌词模式、切行动画和全部背景动效。窗口位置、播放器及歌词源不会写入预设。" />
         </StackPanel>
-        <local:VisualPresetPreview Height="172"
-                                   PresetId="{Binding VisualPreviewModeId}"
-                                   GlowStrength="{Binding VisualGlowStrengthVal}"
-                                   AnimationAmplitude="{Binding VisualAnimationAmplitudeVal}"
-                                   BackgroundOpacity="{Binding VisualBackgroundOpacityVal}"
-                                   PerformanceLevel="{Binding VisualPerformanceLevelIndex}" />
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <TextBox PlaceholderText="预设名称（最多 24 个字符）"
+                   Text="{Binding NewVisualPresetName, Mode=TwoWay}" />
+          <Button Grid.Column="1" Content="保存当前效果"
+                  Command="{Binding SaveUserVisualPresetCommand}" />
+        </Grid>
+        <TextBlock Text="{Binding VisualPresetStatus}" FontSize="11"
+                   Foreground="{DynamicResource SystemAccentColor}" TextWrapping="Wrap" />
+        <TextBlock IsVisible="{Binding HasNoUserVisualPresets}"
+                   Text="尚未保存用户预设。调整好效果后输入名称即可保存。"
+                   FontSize="12" Opacity="0.55" />
+        <ItemsControl ItemsSource="{Binding UserVisualPresets}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:UserVisualPresetItem">
+              <Border Background="#10FFFFFF" BorderBrush="#20FFFFFF" BorderThickness="1"
+                      CornerRadius="7" Padding="10,8" Margin="0,0,0,6">
+                <Grid ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="6">
+                  <StackPanel Spacing="1" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="SemiBold" />
+                    <TextBlock Text="{Binding Description}" FontSize="11" Opacity="0.55" />
+                  </StackPanel>
+                  <Button Grid.Column="1" Content="应用" Padding="10,4"
+                          Command="{Binding $parent[ItemsControl].DataContext.ApplyUserVisualPresetCommand}"
+                          CommandParameter="{Binding Id}" />
+                  <Button Grid.Column="2" Content="更新" Padding="10,4"
+                          ToolTip.Tip="用当前视觉设置覆盖此预设"
+                          Command="{Binding $parent[ItemsControl].DataContext.UpdateUserVisualPresetCommand}"
+                          CommandParameter="{Binding Id}" />
+                  <Button Grid.Column="3" Content="删除" Padding="10,4"
+                          ToolTip.Tip="永久删除此用户预设"
+                          Command="{Binding $parent[ItemsControl].DataContext.DeleteUserVisualPresetCommand}"
+                          CommandParameter="{Binding Id}" />
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="同名保存会覆盖原预设；最多保存 12 个。删除当前正在使用的预设不会改变画面，只会将状态标记为自定义。"
+                   FontSize="11" Opacity="0.55" TextWrapping="Wrap" />
       </StackPanel>
     </Border>
 
