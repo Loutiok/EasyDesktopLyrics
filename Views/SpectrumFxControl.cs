@@ -352,18 +352,18 @@ public sealed class SpectrumFxControl : Control
             MathF.Sqrt(frame.Loudness) * 1.35f + frame.Transient * 0.10f,
             0,
             1);
-        var visibleLevel = 0.42f + activity * 0.58f;
+        var visibleLevel = 0.55f + activity * 0.45f;
         var effectiveFloor = Math.Max(noiseFloor, minimum + (peak - minimum) * 0.08f);
         var dynamicRange = Math.Max(peak - effectiveFloor, 0.0005f);
         for (var i = 0; i < count; i++)
         {
             var normalized = Math.Clamp((_waveBuf[i] - effectiveFloor) / dynamicRange, 0, 1);
-            _waveBuf[i] = MathF.Pow(normalized, 0.78f) * visibleLevel;
+            _waveBuf[i] = MathF.Pow(normalized, 1.12f) * visibleLevel;
         }
 
         var baseline = mode switch { 1 => area.Top, -1 => area.Bottom, _ => area.Y + area.Height / 2 };
         var intensity = Math.Clamp((_intensity - 10) / 80, 0, 1);
-        var heightScale = Bounds.Height * (0.04 + intensity * 0.14);
+        var heightScale = Bounds.Height * (0.06 + intensity * 0.30);
         heightScale *= 1 + MathF.Sqrt(frame.LowEnergy) * (float)_breatheStrength * 0.32f;
         var availableHeight = mode == 1 ? Bounds.Height - baseline : baseline;
         heightScale = Math.Min(heightScale, Math.Max(0, availableHeight));
