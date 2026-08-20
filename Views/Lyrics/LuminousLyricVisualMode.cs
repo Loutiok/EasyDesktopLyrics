@@ -70,6 +70,7 @@ internal sealed class LuminousLyricVisualMode : ILyricVisualMode
             HighlightClip = LyricText.ClipSideMode.Character,
             EffectPadding = effectPadding,
             Margin = new Thickness(-effectPadding),
+            UseGlyphClipping = true,
             IsHitTestVisible = false,
         };
         glow.Bind(LyricText.TextProperty, new Binding("MainText"));

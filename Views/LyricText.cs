@@ -50,6 +50,10 @@ public sealed class LyricText : Control
     public static readonly StyledProperty<int> MaskCharacterIndexProperty =
         AvaloniaProperty.Register<LyricText, int>(nameof(MaskCharacterIndex), -1);
 
+    /// <summary>逐字分段直接绘制字形，不通过矩形透明遮罩；用于会应用模糊/阴影的辉光层。</summary>
+    public static readonly StyledProperty<bool> UseGlyphClippingProperty =
+        AvaloniaProperty.Register<LyricText, bool>(nameof(UseGlyphClipping), false);
+
     /// <summary>行进入逐字显现进度 0~1（从左到右逐个字符点亮）；-1 = 禁用（正常渲染）。</summary>
     public static readonly StyledProperty<double> EnterProgressProperty =
         AvaloniaProperty.Register<LyricText, double>(nameof(EnterProgress), -1);
@@ -106,8 +110,7 @@ public sealed class LyricText : Control
     private TextLayout? _strokeLayout;
     private bool _layoutDirty = true;
     private double[] _charLeft = [];
-    private int _characterMaskIndex = int.MinValue;
-    private IBrush? _characterMask;
+    private readonly Dictionary<(int Start, int Length, byte OpacityStep), TextLayout> _glyphLayouts = [];
 
     static LyricText()
     {
@@ -120,7 +123,7 @@ public sealed class LyricText : Control
             StrokeThicknessProperty, InactiveStrokeEnabledProperty, InactiveStrokeBrushProperty,
             TextAlignmentProperty, HighlightLengthProperty, HighlightFractionProperty,
             HighlightClipProperty, MaskCharacterIndexProperty, MaxTextWidthProperty,
-            EffectPaddingProperty, EnterProgressProperty, ShineProgressProperty);
+            UseGlyphClippingProperty, EffectPaddingProperty, EnterProgressProperty, ShineProgressProperty);
     }
 
     public string? Text
@@ -151,6 +154,12 @@ public sealed class LyricText : Control
     {
         get => GetValue(MaskCharacterIndexProperty);
         set => SetValue(MaskCharacterIndexProperty, value);
+    }
+
+    public bool UseGlyphClipping
+    {
+        get => GetValue(UseGlyphClippingProperty);
+        set => SetValue(UseGlyphClippingProperty, value);
     }
 
     public double EnterProgress
@@ -291,14 +300,11 @@ public sealed class LyricText : Control
             return;
         }
 
-        // 指定字符层：用于当前音节辉光/释放余辉，只绘制目标字符且不参与逐字左右分段。
+        // 指定字符层：直接绘制目标字形。不能使用 PushOpacityMask，否则 DropShadowEffect
+        // 会把遮罩的中间纹理边界当成矩形光源，产生截图中的直角方框。
         if (HighlightClip == ClipSideMode.Character)
         {
-            var characterMask = BuildCharacterMask(body, MaskCharacterIndex);
-            if (characterMask == null)
-                return;
-            using (context.PushOpacityMask(characterMask, new Rect(0, 0, body.Width, body.Height)))
-                DrawBody(context, body, thickness);
+            DrawGlyphRange(context, MaskCharacterIndex, 1, 1);
             return;
         }
 
@@ -310,6 +316,12 @@ public sealed class LyricText : Control
             if (IsFlatMode && HighlightClip == ClipSideMode.Right)
                 return;
             DrawBody(context, body, thickness);
+            return;
+        }
+
+        if (UseGlyphClipping)
+        {
+            DrawGlyphProgress(context, HighlightClip);
             return;
         }
 
@@ -364,8 +376,7 @@ public sealed class LyricText : Control
 
     private void Rebuild()
     {
-        _characterMaskIndex = int.MinValue;
-        _characterMask = null;
+        _glyphLayouts.Clear();
         var text = Text;
         if (string.IsNullOrEmpty(text))
         {
@@ -462,47 +473,62 @@ public sealed class LyricText : Control
             : BuildGradient(layout, Colors.Transparent, Colors.Black);
     }
 
-    /// <summary>指定字符的柔边矩形遮罩；字形本身的 alpha 仍由 TextLayout 保留。</summary>
-    private IBrush? BuildCharacterMask(TextLayout layout, int characterIndex)
+    private void DrawGlyphProgress(DrawingContext context, ClipSideMode clip)
     {
-        if (_characterMaskIndex == characterIndex)
-            return _characterMask;
-        _characterMaskIndex = characterIndex;
-        _characterMask = null;
-
         var length = _charLeft.Length - 1;
-        if (characterIndex < 0 || characterIndex >= length || layout.Width <= 0)
-            return null;
+        if (length <= 0)
+            return;
+        var (done, fraction) = EffectiveHighlight(length);
 
-        var x0 = _charLeft[characterIndex];
-        var x1 = _charLeft[characterIndex + 1];
-        var characterWidth = Math.Max(x1 - x0, 0.001);
-        // 大半径辉光会放大硬遮罩边缘；让遮罩跨越相邻字间距渐隐，保持光晕连续。
-        var feather = Math.Clamp(characterWidth * 0.55, 6, 16);
-        var width = layout.Width;
-        var stops = new List<GradientStop>(6);
-
-        AddStop(stops, 0, x0 <= 0 ? Colors.Black : Colors.Transparent);
-        if (x0 > 0)
+        if (clip == ClipSideMode.Left)
         {
-            AddStop(stops, Math.Max(0, x0 - feather) / width, Colors.Transparent);
-            AddStop(stops, x0 / width, Colors.Black);
-        }
-        AddStop(stops, x1 / width, Colors.Black);
-        if (x1 < width)
-        {
-            AddStop(stops, Math.Min(width, x1 + feather) / width, Colors.Transparent);
-            AddStop(stops, 1, Colors.Transparent);
+            DrawGlyphRange(context, 0, done, 1);
+            if (done < length)
+                DrawGlyphRange(context, done, 1, SmoothStep(fraction));
+            return;
         }
 
-        var brush = new LinearGradientBrush
+        if (done < length)
         {
-            StartPoint = new RelativePoint(0, 0, RelativeUnit.Absolute),
-            EndPoint = new RelativePoint(width, 0, RelativeUnit.Absolute),
-        };
-        brush.GradientStops.AddRange(stops);
-        _characterMask = brush;
-        return _characterMask;
+            DrawGlyphRange(context, done, 1, SmoothStep(1 - fraction));
+            DrawGlyphRange(context, done + 1, length - done - 1, 1);
+        }
+    }
+
+    private void DrawGlyphRange(DrawingContext context, int start, int length, double opacity)
+    {
+        var text = Text;
+        if (string.IsNullOrEmpty(text) || start < 0 || length <= 0 || start + length > text.Length || opacity <= 0)
+            return;
+
+        // 量化到 16 档并写入字形画笔 alpha，完全避开 PushOpacity/PushOpacityMask 的离屏矩形层。
+        var opacityStep = (byte)Math.Clamp(Math.Round(opacity * 16), 1, 16);
+        var key = (start, length, opacityStep);
+        if (!_glyphLayouts.TryGetValue(key, out var layout))
+        {
+            var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
+            layout = CreateLayout(text.Substring(start, length), typeface,
+                BrushWithOpacity(Fill, opacityStep / 16.0), TextAlignment,
+                TextWrapping.NoWrap, double.PositiveInfinity, double.PositiveInfinity);
+            _glyphLayouts[key] = layout;
+        }
+
+        layout.Draw(context, new Point(_charLeft[start], 0));
+    }
+
+    private static IBrush? BrushWithOpacity(IBrush? brush, double opacity)
+    {
+        if (brush is not ISolidColorBrush solid)
+            return brush;
+        var color = solid.Color;
+        return new SolidColorBrush(Color.FromArgb(
+            (byte)Math.Round(color.A * Math.Clamp(opacity, 0, 1)), color.R, color.G, color.B));
+    }
+
+    private static double SmoothStep(double value)
+    {
+        var x = Math.Clamp(value, 0, 1);
+        return x * x * (3 - 2 * x);
     }
 
     /// <summary>逐字渐变：每个字符左边界放一个颜色 stop（已唱=played / 未唱=unplayed），

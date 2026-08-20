@@ -205,6 +205,7 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
             EffectPadding = effectPadding,
             Margin = new Thickness(-effectPadding),
             HighlightClip = clip,
+            UseGlyphClipping = true,
             IsHitTestVisible = false,
         };
         BindLyricBase(lyric);
