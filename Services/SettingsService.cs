@@ -57,6 +57,8 @@ public sealed class SettingsService
     {
         if (s.LyricVisualMode is not ("classic" or "luminous"))
             s.LyricVisualMode = "classic";
+        if (s.VisualPresetId is not ("custom" or "classic" or "luminous" or "immersive"))
+            s.VisualPresetId = "custom";
         s.LuminousGlowStrength = Math.Clamp(s.LuminousGlowStrength, 0.2, 2.0);
         s.LuminousLongNoteThresholdMs = Math.Clamp(s.LuminousLongNoteThresholdMs, 300, 2000);
         s.LuminousReleaseMs = Math.Clamp(s.LuminousReleaseMs, 120, 600);

@@ -85,6 +85,10 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         nameof(InactiveColorIndependent), nameof(InactiveColorValue), nameof(InactiveOpacityVal),
         nameof(InactiveStrokeEnabled), nameof(InactiveStrokeColorValue), nameof(InactiveStrokeThicknessVal),
         nameof(InactiveGlowEnabled), nameof(InactiveGlowColorValue), nameof(InactiveGlowRadiusVal),
+        nameof(ActiveVisualPresetId), nameof(ActiveVisualPresetName), nameof(VisualPreviewModeId),
+        nameof(IsClassicVisualPreset), nameof(IsLuminousVisualPreset), nameof(IsImmersiveVisualPreset),
+        nameof(VisualGlowStrengthVal), nameof(VisualAnimationAmplitudeVal),
+        nameof(VisualBackgroundOpacityVal), nameof(VisualPerformanceLevelIndex),
         nameof(LyricVisualModeIndex), nameof(ShowLuminousOptions), nameof(LuminousGlowColorValue),
         nameof(LuminousGlowStrengthVal), nameof(LuminousLongNoteThresholdVal), nameof(LuminousReleaseVal),
         nameof(ShadowBlurVal), nameof(ShadowOffsetYVal),
@@ -170,6 +174,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         ApplySongOffsetCommand = new RelayCommand(ApplySongOffset, () => _orchestrator.Track != null);
         ClearCacheCommand = new RelayCommand(ClearCache);
         RefreshSessionsCommand = new RelayCommand(RefreshPlayerRules);
+        ApplyVisualPresetCommand = new RelayCommand(ApplyVisualPreset);
 
         SnapPresetCommand = new RelayCommand(p =>
         {
@@ -189,6 +194,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
     // ---------- 导航 ----------
     public IReadOnlyList<NavOption> NavOptions { get; } =
     [
+        new("\uE771", "视觉预设"),
         new("\uE768", "播放"),
         new("\uE790", "外观"),
         new("\uE762", "文字特效"),
@@ -198,13 +204,14 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         new("\uE768", "背景动效"),
     ];
 
-    public bool PlayNavSelected => _selectedNav == 0;
-    public bool AppearanceNavSelected => _selectedNav == 1;
-    public bool EffectsNavSelected => _selectedNav == 2;
-    public bool CoverNavSelected => _selectedNav == 3;
-    public bool DisplayNavSelected => _selectedNav == 4;
-    public bool FixNavSelected => _selectedNav == 5;
-    public bool BackgroundFxNavSelected => _selectedNav == 6;
+    public bool VisualPresetNavSelected => _selectedNav == 0;
+    public bool PlayNavSelected => _selectedNav == 1;
+    public bool AppearanceNavSelected => _selectedNav == 2;
+    public bool EffectsNavSelected => _selectedNav == 3;
+    public bool CoverNavSelected => _selectedNav == 4;
+    public bool DisplayNavSelected => _selectedNav == 5;
+    public bool FixNavSelected => _selectedNav == 6;
+    public bool BackgroundFxNavSelected => _selectedNav == 7;
 
     private int _selectedNav;
 
@@ -214,7 +221,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         set
         {
             if (Set(ref _selectedNav, value))
-                RaiseMany([nameof(PlayNavSelected), nameof(AppearanceNavSelected),
+                RaiseMany([nameof(VisualPresetNavSelected), nameof(PlayNavSelected), nameof(AppearanceNavSelected),
                            nameof(EffectsNavSelected), nameof(CoverNavSelected),
                            nameof(DisplayNavSelected), nameof(FixNavSelected),
                            nameof(BackgroundFxNavSelected)]);

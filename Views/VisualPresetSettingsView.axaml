@@ -1,0 +1,129 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:EasyDesktopLyrics.ViewModels"
+             xmlns:local="using:EasyDesktopLyrics.Views"
+             x:Class="EasyDesktopLyrics.Views.VisualPresetSettingsView"
+             x:DataType="vm:SettingsViewModel">
+
+  <UserControl.Styles>
+    <Style Selector="ToggleButton.presetCard">
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="VerticalContentAlignment" Value="Stretch" />
+      <Setter Property="Padding" Value="14" />
+      <Setter Property="MinHeight" Value="128" />
+      <Setter Property="CornerRadius" Value="9" />
+      <Setter Property="Background" Value="#10101010" />
+      <Setter Property="BorderBrush" Value="#22FFFFFF" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="ToggleButton.presetCard:pointerover">
+      <Setter Property="Background" Value="#20FFFFFF" />
+      <Setter Property="BorderBrush" Value="#42FFFFFF" />
+    </Style>
+    <Style Selector="ToggleButton.presetCard:checked">
+      <Setter Property="Background" Value="#281E8FFF" />
+      <Setter Property="BorderBrush" Value="{DynamicResource SystemAccentColor}" />
+      <Setter Property="BorderThickness" Value="2" />
+    </Style>
+  </UserControl.Styles>
+
+  <StackPanel Spacing="12">
+    <Border Classes="card">
+      <StackPanel Spacing="12">
+        <StackPanel Spacing="2">
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBlock Classes="cardTitle" Text="视觉预设" />
+            <TextBlock Grid.Column="1" FontSize="12" Opacity="0.7"
+                       Text="{Binding ActiveVisualPresetName, StringFormat='当前：{0}'}" />
+          </Grid>
+          <TextBlock Classes="cardDesc"
+                     Text="选择一套完整视觉语言。预设会同时配置歌词、切行动画、背景层和性能参数；应用后仍可使用下方高级设置微调。" />
+        </StackPanel>
+
+        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+          <ToggleButton Classes="presetCard" IsChecked="{Binding IsClassicVisualPreset, Mode=OneWay}"
+                        Command="{Binding ApplyVisualPresetCommand}" CommandParameter="classic">
+            <StackPanel Spacing="7">
+              <TextBlock Text="经典" FontSize="16" FontWeight="SemiBold" />
+              <TextBlock Text="清晰、稳定、低占用" FontSize="12" Opacity="0.78" />
+              <TextBlock Text="经典歌词主体与柔和淡入，不启用音频背景。"
+                         FontSize="11" Opacity="0.56" TextWrapping="Wrap" />
+            </StackPanel>
+          </ToggleButton>
+          <ToggleButton Grid.Column="1" Classes="presetCard" IsChecked="{Binding IsLuminousVisualPreset, Mode=OneWay}"
+                        Command="{Binding ApplyVisualPresetCommand}" CommandParameter="luminous">
+            <StackPanel Spacing="7">
+              <TextBlock Text="流光" FontSize="16" FontWeight="SemiBold" />
+              <TextBlock Text="逐音节辉光、平滑曲线" FontSize="12" Opacity="0.78" />
+              <TextBlock Text="长音呼吸与极简频谱，保留通透的桌面观感。"
+                         FontSize="11" Opacity="0.56" TextWrapping="Wrap" />
+            </StackPanel>
+          </ToggleButton>
+          <ToggleButton Grid.Column="2" Classes="presetCard" IsChecked="{Binding IsImmersiveVisualPreset, Mode=OneWay}"
+                        Command="{Binding ApplyVisualPresetCommand}" CommandParameter="immersive">
+            <StackPanel Spacing="7">
+              <TextBlock Text="沉浸" FontSize="16" FontWeight="SemiBold" />
+              <TextBlock Text="极光、流光、音频呼吸" FontSize="12" Opacity="0.78" />
+              <TextBlock Text="封面色彩铺满背景，以克制位移连接每行歌词。"
+                         FontSize="11" Opacity="0.56" TextWrapping="Wrap" />
+            </StackPanel>
+          </ToggleButton>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <Border Classes="card">
+      <StackPanel Spacing="9">
+        <StackPanel Spacing="2">
+          <TextBlock Classes="cardTitle" Text="动态预览" />
+          <TextBlock Classes="cardDesc" Text="预览使用合成节拍，不会打开音频捕获，也不会改变当前歌曲的歌词时间轴。" />
+        </StackPanel>
+        <local:VisualPresetPreview Height="172"
+                                   PresetId="{Binding VisualPreviewModeId}"
+                                   GlowStrength="{Binding VisualGlowStrengthVal}"
+                                   AnimationAmplitude="{Binding VisualAnimationAmplitudeVal}"
+                                   BackgroundOpacity="{Binding VisualBackgroundOpacityVal}"
+                                   PerformanceLevel="{Binding VisualPerformanceLevelIndex}" />
+      </StackPanel>
+    </Border>
+
+    <Border Classes="card">
+      <Expander Header="高级设置" IsExpanded="False">
+        <StackPanel Spacing="10" Margin="0,12,0,0">
+          <TextBlock Classes="cardDesc"
+                     Text="四个参数会同时协调相关子效果。更细的颜色、频谱和动画设置仍保留在对应页面。" />
+          <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+            <TextBlock Classes="sectionLabel" Text="辉光强度" />
+            <Slider Grid.Column="1" Minimum="0.2" Maximum="2" TickFrequency="0.1"
+                    Value="{Binding VisualGlowStrengthVal, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                     Text="{Binding VisualGlowStrengthVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F1}'}"
+                     TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+          </Grid>
+          <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+            <TextBlock Classes="sectionLabel" Text="动画幅度" />
+            <Slider Grid.Column="1" Minimum="0" Maximum="100" TickFrequency="5"
+                    Value="{Binding VisualAnimationAmplitudeVal, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                     Text="{Binding VisualAnimationAmplitudeVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F0}'}"
+                     TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+          </Grid>
+          <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+            <TextBlock Classes="sectionLabel" Text="背景不透明度" />
+            <Slider Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.05"
+                    Value="{Binding VisualBackgroundOpacityVal, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                     Text="{Binding VisualBackgroundOpacityVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F2}'}"
+                     TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+          </Grid>
+          <Grid ColumnDefinitions="140,*" ColumnSpacing="14">
+            <TextBlock Classes="sectionLabel" Text="性能等级" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding VisualPerformanceLevelOptions}"
+                      SelectedIndex="{Binding VisualPerformanceLevelIndex, Mode=TwoWay}"
+                      Width="180" HorizontalAlignment="Left" />
+          </Grid>
+        </StackPanel>
+      </Expander>
+    </Border>
+  </StackPanel>
+</UserControl>

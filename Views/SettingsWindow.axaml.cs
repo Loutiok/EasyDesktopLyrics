@@ -20,6 +20,7 @@ public sealed partial class SettingsWindow : Window
         // 分区视图实例缓存：切换导航时零创建开销
         _views =
         [
+            new VisualPresetSettingsView(),
             new PlaySettingsView(),
             new AppearanceSettingsView(),
             new TextEffectsSettingsView(),
@@ -28,13 +29,13 @@ public sealed partial class SettingsWindow : Window
             new FixSettingsView(),
             new BackgroundFxSettingsView(),
         ];
-        ContentHost.Content = _views[Math.Clamp(vm.SelectedNav, 0, 6)];
+        ContentHost.Content = _views[Math.Clamp(vm.SelectedNav, 0, 7)];
 
         _vm.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(SettingsViewModel.SelectedNav))
             {
-                ContentHost.Content = _views[Math.Clamp(_vm.SelectedNav, 0, 6)];
+                ContentHost.Content = _views[Math.Clamp(_vm.SelectedNav, 0, 7)];
                 ContentScroll.Offset = Vector.Zero;
             }
         };
