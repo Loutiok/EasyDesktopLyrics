@@ -213,13 +213,13 @@ public sealed class SpectrumFxSettings
 {
     public bool Enabled { get; set; }
 
-    /// <summary>位置："Bottom" 底部（单侧，自下而上）/ "Center" 行中央（双侧，沿 x 轴对称）/ "Top" 顶部（单侧，自上而下）。</summary>
+    /// <summary>位置："Bottom" 底部 / "Center" 行中央 / "Top" 顶部；极简曲线在 Center 保持单线。</summary>
     public string Position { get; set; } = "Bottom";
 
-    /// <summary>样式："Bars" 柱状图 / "Curve" 曲线 / "Line" 单曲线 / "WaveBand" 柔光波带。</summary>
+    /// <summary>样式："Bars" 柱状图 / "Curve" 曲线 / "Line" 单曲线 / "WaveBand" 极简曲线。</summary>
     public string Style { get; set; } = "Bars";
 
-    /// <summary>强度：频谱最高峰高度 = 窗口高度百分比（10–90）。</summary>
+    /// <summary>强度（10–90）：普通频谱为最大高度百分比，极简曲线映射为克制的波形高度。</summary>
     public double Intensity { get; set; } = 40;
 
     /// <summary>数量：频谱采样（柱/曲线点）总数（16–128）。</summary>

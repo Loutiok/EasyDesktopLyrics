@@ -9,7 +9,7 @@ namespace EasyDesktopLyrics.Views;
 
 /// <summary>
 /// 频谱动效：在歌词背面绘制柱状图 / 曲线 / 单曲线。
-/// 位置语义：顶部/底部 = 单侧频谱（自边缘向内生长）；行中央 = 双侧频谱（沿 x 轴对称）。
+/// 位置语义：普通频谱在顶部/底部为单侧、行中央为双侧；极简曲线在行中央保持单线。
 /// 强度为窗口高度百分比，宽度范围为窗口宽度百分比，采样数量可配置。
 /// 数据来自共享 AudioFeatureService；控件本身只负责渲染，不拥有音频设备。
 /// </summary>
@@ -37,8 +37,8 @@ public sealed class SpectrumFxControl : Control
     private IBrush _fill = Brushes.Transparent;
     private IBrush _glowBrush = Brushes.Transparent;
     private IBrush _waveFillBrush = Brushes.Transparent;
-    private IBrush _waveSoftBrush = Brushes.Transparent;
-    private IBrush _waveCoreBrush = Brushes.Transparent;
+    private IBrush _waveGlowBrush = Brushes.Transparent;
+    private IBrush _waveLineBrush = Brushes.Transparent;
     private Pen? _strokePen;
     private IEffect? _waveBlur;
 
@@ -58,7 +58,7 @@ public sealed class SpectrumFxControl : Control
         _centerBass = s.CenterBass;
         _breatheStrength = Math.Clamp(s.Breathing, 0, 100) / 100.0;
         _waveBlur = _glowEnabled && _glowStrength > 0
-            ? new BlurEffect { Radius = 5 + 8 * _glowStrength }
+            ? new BlurEffect { Radius = 4 + 6 * _glowStrength }
             : null;
         RebuildBrushes(s.ColorHex);
         InvalidateVisual();
@@ -80,19 +80,23 @@ public sealed class SpectrumFxControl : Control
             return;
         // 布局：L/R 镜像（中心低频、两侧高频且左右不同）或传统左低右高（立体声平均）
         var drawBands = _centerBass ? BuildLR(frame) : MergeToMono(frame);
-        // 渲染级呼吸：低音驱动整体缩放（快起慢落）
-        UpdateBreathing(frame.LowEnergy);
         using (context.PushClip(new RoundedRect(Bounds, CornerRadius)))
         {
             var area = DrawingArea();
             if (area.Width <= 0 || area.Height <= 0)
                 return;
             var mode = _position switch { "Top" => 1, "Bottom" => -1, _ => 0 };
+            if (_style == "WaveBand")
+            {
+                DrawWaveBand(context, drawBands, frame, area, mode);
+                return;
+            }
+
+            // 传统频谱保留低音驱动的整体呼吸；极简曲线只改变自身振幅，避免边缘缩放变形。
+            UpdateBreathing(frame.LowEnergy);
             using (PushBreathingTransform(context))
             {
-                if (_style == "WaveBand")
-                    DrawWaveBand(context, drawBands, frame, area, mode);
-                else if (_style == "Curve")
+                if (_style == "Curve")
                     DrawCurve(context, drawBands, area, mode, filled: true);
                 else if (_style == "Line")
                     DrawCurve(context, drawBands, area, mode, filled: false);
@@ -182,12 +186,21 @@ public sealed class SpectrumFxControl : Control
         };
         _glowBrush = new ImmutableSolidColorBrush(Color.FromArgb(
             (byte)Math.Round(c.A * _opacity * 0.32), c.R, c.G, c.B));
-        _waveFillBrush = new ImmutableSolidColorBrush(Color.FromArgb(
+        var waveSolid = Color.FromArgb(
+            (byte)Math.Round(c.A * _opacity * 0.68), c.R, c.G, c.B);
+        var waveTransparent = Color.FromArgb(0, c.R, c.G, c.B);
+        _waveFillBrush = new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+            GradientStops = _position == "Top"
+                ? new GradientStops { new(waveSolid, 0), new(waveTransparent, 1) }
+                : new GradientStops { new(waveTransparent, 0), new(waveSolid, 1) },
+        };
+        _waveGlowBrush = new ImmutableSolidColorBrush(Color.FromArgb(
             (byte)Math.Round(c.A * _opacity * 0.20), c.R, c.G, c.B));
-        _waveSoftBrush = new ImmutableSolidColorBrush(Color.FromArgb(
-            (byte)Math.Round(c.A * _opacity * 0.44), c.R, c.G, c.B));
-        _waveCoreBrush = new ImmutableSolidColorBrush(Color.FromArgb(
-            (byte)Math.Round(c.A * _opacity * 0.92), c.R, c.G, c.B));
+        _waveLineBrush = new ImmutableSolidColorBrush(Color.FromArgb(
+            (byte)Math.Round(c.A * _opacity * 0.82), c.R, c.G, c.B));
         _strokePen = new Pen(new ImmutableSolidColorBrush(solid), 2);
     }
 
@@ -298,8 +311,8 @@ public sealed class SpectrumFxControl : Control
     }
 
     /// <summary>
-    /// 柔光波带：用经过空间平滑的频带构造连续轮廓，再叠加模糊外光、柔光和清晰核心。
-    /// 低频控制厚度，中频控制起伏，高频与瞬态只提供少量边缘亮度，不直接抖动布局。
+    /// 极简曲线：顶部/底部用单条低振幅样条向窗口边缘闭合，行中央绘制开放单线。
+    /// 可选辉光始终沿同一几何模糊，避免出现多层平行波纹。
     /// </summary>
     private void DrawWaveBand(
         DrawingContext context,
@@ -314,31 +327,46 @@ public sealed class SpectrumFxControl : Control
         if (_waveBuf.Length != count)
             _waveBuf = new float[count];
 
+        var peak = 0f;
+        var minimum = float.MaxValue;
         for (var i = 0; i < count; i++)
         {
-            var left = bands[Math.Max(0, i - 1)];
+            var left2 = bands[Math.Max(0, i - 2)];
+            var left1 = bands[Math.Max(0, i - 1)];
             var center = bands[i];
-            var right = bands[Math.Min(count - 1, i + 1)];
-            var spatiallySmoothed = left * 0.24f + center * 0.52f + right * 0.24f;
+            var right1 = bands[Math.Min(count - 1, i + 1)];
+            var right2 = bands[Math.Min(count - 1, i + 2)];
+            var spatiallySmoothed =
+                left2 * 0.0625f + left1 * 0.25f + center * 0.375f +
+                right1 * 0.25f + right2 * 0.0625f;
+            _waveBuf[i] = spatiallySmoothed;
+            peak = Math.Max(peak, spatiallySmoothed);
+            minimum = Math.Min(minimum, spatiallySmoothed);
+        }
 
-            // FFT values spend most of their time in the lower part of 0..1. A linear mapping
-            // made even a 90% drawing area look like a flat line. Remove the noise floor and use
-            // a soft-knee curve so quiet detail stays visible without flattening loud peaks.
-            var gated = Math.Clamp((spatiallySmoothed - 0.006f) / 0.994f, 0, 1);
-            var shaped = MathF.Pow(gated, 0.46f);
-            var activity = Math.Clamp(
-                0.34f + MathF.Sqrt(frame.Loudness) * 0.78f + frame.Transient * 0.12f,
-                0,
-                1);
-            _waveBuf[i] = Math.Clamp(
-                shaped * activity + MathF.Sqrt(frame.LowEnergy) * 0.055f,
-                0,
-                1);
+        const float noiseFloor = 0.006f;
+        if (peak <= noiseFloor)
+            return;
+
+        var activity = Math.Clamp(
+            MathF.Sqrt(frame.Loudness) * 1.35f + frame.Transient * 0.10f,
+            0,
+            1);
+        var visibleLevel = 0.42f + activity * 0.58f;
+        var effectiveFloor = Math.Max(noiseFloor, minimum + (peak - minimum) * 0.08f);
+        var dynamicRange = Math.Max(peak - effectiveFloor, 0.0005f);
+        for (var i = 0; i < count; i++)
+        {
+            var normalized = Math.Clamp((_waveBuf[i] - effectiveFloor) / dynamicRange, 0, 1);
+            _waveBuf[i] = MathF.Pow(normalized, 0.78f) * visibleLevel;
         }
 
         var baseline = mode switch { 1 => area.Top, -1 => area.Bottom, _ => area.Y + area.Height / 2 };
-        var maxPerSide = mode == 0 ? area.Height / 2 : area.Height;
-        var heightScale = maxPerSide * (0.68 + frame.MidEnergy * 0.22);
+        var intensity = Math.Clamp((_intensity - 10) / 80, 0, 1);
+        var heightScale = Bounds.Height * (0.04 + intensity * 0.14);
+        heightScale *= 1 + MathF.Sqrt(frame.LowEnergy) * (float)_breatheStrength * 0.32f;
+        var availableHeight = mode == 1 ? Bounds.Height - baseline : baseline;
+        heightScale = Math.Min(heightScale, Math.Max(0, availableHeight));
         var step = area.Width / (count - 1);
         var points = new Point[count];
         for (var i = 0; i < count; i++)
@@ -347,27 +375,73 @@ public sealed class SpectrumFxControl : Control
             points[i] = new Point(area.X + i * step, mode == 1 ? baseline + height : baseline - height);
         }
 
-        var ribbon = BuildCurveGeometry(points, baseline, mode, filled: true, area);
-        var edge = BuildCurveGeometry(points, baseline, mode, filled: false, area);
-        context.DrawGeometry(_waveFillBrush, null, ribbon);
+        if (mode == 0)
+        {
+            DrawMinimalWaveLine(context, points);
+            return;
+        }
+
+        var ribbon = BuildSingleCurveFillGeometry(points, baseline);
 
         if (_waveBlur != null)
         {
-            var outerWidth = 14 + frame.LowEnergy * 26 + frame.Transient * 8;
-            var edgeBounds = edge.Bounds;
+            const double effectPadding = 24;
+            var ribbonBounds = ribbon.Bounds;
             var effectBounds = new Rect(
-                edgeBounds.X - outerWidth / 2,
-                edgeBounds.Y - outerWidth / 2,
-                edgeBounds.Width + outerWidth,
-                edgeBounds.Height + outerWidth);
+                ribbonBounds.X - effectPadding,
+                ribbonBounds.Y - effectPadding,
+                ribbonBounds.Width + effectPadding * 2,
+                ribbonBounds.Height + effectPadding * 2);
             using (context.PushEffect(_waveBlur, effectBounds))
-                context.DrawGeometry(null, new Pen(_waveSoftBrush, outerWidth), edge);
+                context.DrawGeometry(_waveGlowBrush, null, ribbon);
         }
 
-        var softWidth = 5 + frame.LowEnergy * 11;
-        context.DrawGeometry(null, new Pen(_waveSoftBrush, softWidth), edge);
-        var coreWidth = 2 + frame.HighEnergy * 2.2 + frame.Transient;
-        context.DrawGeometry(null, new Pen(_waveCoreBrush, coreWidth), edge);
+        context.DrawGeometry(_waveFillBrush, null, ribbon);
+    }
+
+    private void DrawMinimalWaveLine(DrawingContext context, Point[] points)
+    {
+        var curve = BuildOpenCurveGeometry(points);
+        if (_waveBlur != null)
+        {
+            const double effectPadding = 18;
+            var curveBounds = curve.Bounds;
+            var effectBounds = new Rect(
+                curveBounds.X - effectPadding,
+                curveBounds.Y - effectPadding,
+                curveBounds.Width + effectPadding * 2,
+                curveBounds.Height + effectPadding * 2);
+            using (context.PushEffect(_waveBlur, effectBounds))
+                context.DrawGeometry(null, new Pen(_waveGlowBrush, 3.5), curve);
+        }
+
+        context.DrawGeometry(null, new Pen(_waveLineBrush, 1.1), curve);
+    }
+
+    private static Geometry BuildOpenCurveGeometry(Point[] points)
+    {
+        var geometry = new StreamGeometry();
+        using (var context = geometry.Open())
+        {
+            context.BeginFigure(points[0], false);
+            AddSmoothThrough(context, points);
+            context.EndFigure(false);
+        }
+        return geometry;
+    }
+
+    private static Geometry BuildSingleCurveFillGeometry(Point[] points, double baseline)
+    {
+        var geometry = new StreamGeometry();
+        using (var context = geometry.Open())
+        {
+            context.BeginFigure(points[0], true);
+            AddSmoothThrough(context, points);
+            context.LineTo(new Point(points[^1].X, baseline));
+            context.LineTo(new Point(points[0].X, baseline));
+            context.EndFigure(true);
+        }
+        return geometry;
     }
 
     /// <summary>

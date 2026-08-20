@@ -54,7 +54,7 @@ public sealed partial class SettingsViewModel
         }
     }
 
-    private static readonly string[] SpectrumStyles = ["柱状图", "曲线", "单曲线", "柔光波带"];
+    private static readonly string[] SpectrumStyles = ["柱状图", "曲线", "单曲线", "极简曲线"];
 
     public IReadOnlyList<string> SpectrumStyleOptions => SpectrumStyles;
 
