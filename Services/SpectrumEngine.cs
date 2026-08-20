@@ -124,8 +124,9 @@ public sealed class SpectrumEngine : IDisposable
     }
 
     /// <summary>当前帧 L/R 频带快照（长度 = Count，0~1）+ 低音能量。数组为内部复用，须当帧用完。</summary>
-    public SpectrumFrame GetFrame()
+    public SpectrumFrame GetFrame(double deltaSeconds)
     {
+        var dt = Math.Clamp(deltaSeconds, 1.0 / 240, 0.1);
         // 端点切换、设备休眠等情况下采集线程可能仍存活却不再产出数据。此时不要让
         // “真实模式”永久输出零帧；先回退模拟，后续一旦重新收到样本会自动切回真实模式。
         if (_real && Environment.TickCount64 - Interlocked.Read(ref _lastSampleTick) > 2000)
@@ -135,8 +136,8 @@ public sealed class SpectrumEngine : IDisposable
             SourceChanged?.Invoke(false);
         }
         if (_real)
-            return ComputeRealFrame();
-        return ComputeSimulatedFrame();
+            return ComputeRealFrame(dt);
+        return ComputeSimulatedFrame(dt);
     }
 
     // ---------- 真实频谱 ----------
@@ -165,14 +166,14 @@ public sealed class SpectrumEngine : IDisposable
         }
     }
 
-    private SpectrumFrame ComputeRealFrame()
+    private SpectrumFrame ComputeRealFrame(double deltaSeconds)
     {
         var count = _smoothedL.Length;
         lock (_lock)
         {
             if (_samples.Count < FftSize * 2)
             {
-                DecayToZero(count);
+                DecayToZero(count, deltaSeconds);
                 _bassEnergy = 0;
                 return new SpectrumFrame(_smoothedL, _smoothedR, 0);
             }
@@ -198,8 +199,8 @@ public sealed class SpectrumEngine : IDisposable
         ApplyBassPump(count, _targetR);
         ApplyHighBoost(count, _targetL);
         ApplyHighBoost(count, _targetR);
-        SmoothAndReturn(count, _targetL, _smoothedL, _peakHoldL);
-        SmoothAndReturn(count, _targetR, _smoothedR, _peakHoldR);
+        SmoothAndReturn(count, _targetL, _smoothedL, _peakHoldL, deltaSeconds);
+        SmoothAndReturn(count, _targetR, _smoothedR, _peakHoldR, deltaSeconds);
 
         // 伪立体声：单声道源（L≈R）时给 R 侧加轻微时变扰动，避免左右完全一致
         if (_isMono)
@@ -330,7 +331,7 @@ public sealed class SpectrumEngine : IDisposable
 
     // ---------- 模拟频谱（伪立体声） ----------
 
-    private SpectrumFrame ComputeSimulatedFrame()
+    private SpectrumFrame ComputeSimulatedFrame(double deltaSeconds)
     {
         var count = _smoothedL.Length;
         var t = SimTime();
@@ -360,8 +361,8 @@ public sealed class SpectrumEngine : IDisposable
         ApplyBassPump(count, _targetR);
         ApplyHighBoost(count, _targetL);
         ApplyHighBoost(count, _targetR);
-        SmoothAndReturn(count, _targetL, _smoothedL, _peakHoldL);
-        SmoothAndReturn(count, _targetR, _smoothedR, _peakHoldR);
+        SmoothAndReturn(count, _targetL, _smoothedL, _peakHoldL, deltaSeconds);
+        SmoothAndReturn(count, _targetR, _smoothedR, _peakHoldR, deltaSeconds);
         UpdateBassEnergy(count);
         return new SpectrumFrame(_smoothedL, _smoothedR, _bassEnergy);
     }
@@ -378,12 +379,20 @@ public sealed class SpectrumEngine : IDisposable
 
     // ---------- 平滑与输出 ----------
 
-    private void SmoothAndReturn(int count, float[] target, float[] smoothed, float[] peakHold)
+    private void SmoothAndReturn(
+        int count,
+        float[] target,
+        float[] smoothed,
+        float[] peakHold,
+        double deltaSeconds)
     {
-        var attack = 1.0f / (1 + _smoothing);
-        var decay = (float)Math.Pow(0.99, _smoothing);
+        // Preserve the original 30 fps tuning while making the response independent of render fps.
+        var frameScale = deltaSeconds * 30;
+        var attackAt30Fps = 1.0f / (1 + _smoothing);
+        var attack = (float)(1 - Math.Pow(1 - attackAt30Fps, frameScale));
+        var decay = (float)Math.Pow(Math.Pow(0.99, _smoothing), frameScale);
         // 峰值保持：约 300ms 残影，弱频段不至于瞬间归零，频谱更饱满
-        var hold = (float)Math.Pow(0.5, 1.0 / (0.3 * 30));
+        var hold = (float)Math.Pow(0.5, deltaSeconds / 0.3);
         for (var i = 0; i < count; i++)
         {
             peakHold[i] = Math.Max(target[i], peakHold[i] * hold);
@@ -395,9 +404,10 @@ public sealed class SpectrumEngine : IDisposable
         }
     }
 
-    private void DecayToZero(int count)
+    private void DecayToZero(int count, double deltaSeconds)
     {
-        var decay = (float)Math.Pow(0.96, _smoothing * 2);
+        var decayAt30Fps = Math.Pow(0.96, _smoothing * 2);
+        var decay = (float)Math.Pow(decayAt30Fps, deltaSeconds * 30);
         for (var i = 0; i < count; i++)
         {
             _smoothedL[i] *= decay;

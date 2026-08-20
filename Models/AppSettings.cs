@@ -216,7 +216,7 @@ public sealed class SpectrumFxSettings
     /// <summary>位置："Bottom" 底部（单侧，自下而上）/ "Center" 行中央（双侧，沿 x 轴对称）/ "Top" 顶部（单侧，自上而下）。</summary>
     public string Position { get; set; } = "Bottom";
 
-    /// <summary>样式："Bars" 柱状图 / "Curve" 曲线 / "Line" 单曲线。</summary>
+    /// <summary>样式："Bars" 柱状图 / "Curve" 曲线 / "Line" 单曲线 / "WaveBand" 柔光波带。</summary>
     public string Style { get; set; } = "Bars";
 
     /// <summary>强度：频谱最高峰高度 = 窗口高度百分比（10–90）。</summary>

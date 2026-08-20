@@ -54,7 +54,7 @@ public sealed partial class SettingsViewModel
         }
     }
 
-    private static readonly string[] SpectrumStyles = ["柱状图", "曲线", "单曲线"];
+    private static readonly string[] SpectrumStyles = ["柱状图", "曲线", "单曲线", "柔光波带"];
 
     public IReadOnlyList<string> SpectrumStyleOptions => SpectrumStyles;
 
@@ -64,11 +64,12 @@ public sealed partial class SettingsViewModel
         {
             "Curve" => 1,
             "Line" => 2,
+            "WaveBand" => 3,
             _ => 0,
         };
         set
         {
-            var p = value switch { 1 => "Curve", 2 => "Line", _ => "Bars" };
+            var p = value switch { 1 => "Curve", 2 => "Line", 3 => "WaveBand", _ => "Bars" };
             if (p == _settings.Current.BackgroundFx.Spectrum.Style) return;
             _settings.Update(s => s.BackgroundFx.Spectrum.Style = p);
         }

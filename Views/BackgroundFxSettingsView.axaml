@@ -35,7 +35,7 @@
           <StackPanel Spacing="2">
             <TextBlock Classes="cardTitle" Text="频谱" />
             <TextBlock Classes="cardDesc"
-                       Text="显示在歌词背面的实时频谱。优先采集系统正在播放的音频（WASAPI 环回）；采集不可用时自动回退为模拟频谱。" />
+                       Text="显示在歌词背面的实时频谱。所有音频响应效果共享一次 WASAPI/FFT 分析；采集不可用时自动回退为模拟频谱。" />
           </StackPanel>
           <ToggleSwitch Grid.Column="1" IsChecked="{Binding SpectrumEnabled, Mode=TwoWay}"
                         OnContent="" OffContent="" VerticalAlignment="Center" />
@@ -67,7 +67,7 @@
                          TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
               </Grid>
             </Grid>
-            <TextBlock Text="数量 = 频谱采样数（柱状图根数 / 曲线采样点，16–128）。" FontSize="11" Opacity="0.6" />
+            <TextBlock Text="数量 = 频谱采样数（柱状图根数 / 曲线与柔光波带采样点，16–128）。" FontSize="11" Opacity="0.6" />
             <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
               <TextBlock Classes="sectionLabel" Text="宽度范围" />
               <Slider Grid.Column="1" Minimum="20" Maximum="100" TickFrequency="5"

@@ -11,20 +11,17 @@ namespace EasyDesktopLyrics.Views;
 /// 频谱动效：在歌词背面绘制柱状图 / 曲线 / 单曲线。
 /// 位置语义：顶部/底部 = 单侧频谱（自边缘向内生长）；行中央 = 双侧频谱（沿 x 轴对称）。
 /// 强度为窗口高度百分比，宽度范围为窗口宽度百分比，采样数量可配置。
-/// 数据来自 SpectrumEngine（真实环回或模拟回退）。
+/// 数据来自共享 AudioFeatureService；控件本身只负责渲染，不拥有音频设备。
 /// </summary>
 public sealed class SpectrumFxControl : Control
 {
     private const double CornerRadius = 6;
 
-    private SpectrumEngine? _engine;
-    private int _engineGeneration;
+    private AudioFeatureFrame _frame = AudioFeatureFrame.Empty;
     private bool _enabled;
-    private int _smoothing = 3;
     private string _style = "Bars";
     private string _position = "Bottom";
     private double _intensity = 40;
-    private int _bandCount = 32;
     private double _widthPct = 100;
     private double _opacity = 0.8;
     private bool _glowEnabled = true;
@@ -34,76 +31,57 @@ public sealed class SpectrumFxControl : Control
     private float _breatheScale = 1f;
     private float[] _lrBuf = Array.Empty<float>();
     private float[] _monoBuf = Array.Empty<float>();
+    private float[] _waveBuf = Array.Empty<float>();
 
     private string _brushKey = "";
     private IBrush _fill = Brushes.Transparent;
     private IBrush _glowBrush = Brushes.Transparent;
+    private IBrush _waveFillBrush = Brushes.Transparent;
+    private IBrush _waveSoftBrush = Brushes.Transparent;
+    private IBrush _waveCoreBrush = Brushes.Transparent;
     private Pen? _strokePen;
+    private IEffect? _waveBlur;
 
     /// <summary>歌词行区域（layer 本地坐标）；null = 用整个区域定位。</summary>
     public Rect? LyricsRect { get; set; }
 
-    public bool IsRunning => _engine != null;
-
-    public void SetPlaying(bool playing) => _engine?.SetPlaying(playing);
-
     public void ApplySettings(SpectrumFxSettings s)
     {
         _enabled = s.Enabled;
-        _smoothing = Math.Clamp(s.Smoothing, 1, 10);
         _style = s.Style;
         _position = s.Position;
         _intensity = Math.Clamp(s.Intensity, 10, 90);
-        _bandCount = Math.Clamp(s.BandCount, 16, 128);
         _widthPct = Math.Clamp(s.WidthPct, 20, 100);
         _opacity = Math.Clamp(s.Opacity, 0.05, 1);
         _glowEnabled = s.GlowEnabled;
         _glowStrength = Math.Clamp(s.GlowStrength, 0, 2);
         _centerBass = s.CenterBass;
         _breatheStrength = Math.Clamp(s.Breathing, 0, 100) / 100.0;
-        _engine?.SetSmoothing(_smoothing);
-        _engine?.SetBandCount(_bandCount);
+        _waveBlur = _glowEnabled && _glowStrength > 0
+            ? new BlurEffect { Radius = 5 + 8 * _glowStrength }
+            : null;
         RebuildBrushes(s.ColorHex);
         InvalidateVisual();
     }
 
-    public async Task StartAsync()
+    public void SetFrame(AudioFeatureFrame frame)
     {
-        if (_engine != null)
-            return;
-        var e = new SpectrumEngine();
-        e.SetSmoothing(_smoothing);
-        e.SetBandCount(_bandCount);
-        _engine = e;
-        var generation = ++_engineGeneration;
-        await e.StartAsync().ConfigureAwait(false);
-
-        // 启动过程中可能已被关闭或重新创建；旧实例不能重新进入活动状态。
-        if (generation != _engineGeneration || !ReferenceEquals(_engine, e))
-            e.Dispose();
+        _frame = frame;
+        InvalidateVisual();
     }
-
-    public void Stop()
-    {
-        _engineGeneration++;
-        _engine?.Dispose();
-        _engine = null;
-    }
-
-    public void TickAndInvalidate() => InvalidateVisual();
 
     public override void Render(DrawingContext context)
     {
         base.Render(context);
         if (!_enabled || Bounds.Width <= 0 || Bounds.Height <= 0)
             return;
-        var frame = _engine?.GetFrame();
-        if (frame == null || frame.Value.Left.Length == 0)
+        var frame = _frame;
+        if (frame.Left.Length == 0)
             return;
         // 布局：L/R 镜像（中心低频、两侧高频且左右不同）或传统左低右高（立体声平均）
-        var drawBands = _centerBass ? BuildLR(frame.Value) : MergeToMono(frame.Value);
+        var drawBands = _centerBass ? BuildLR(frame) : MergeToMono(frame);
         // 渲染级呼吸：低音驱动整体缩放（快起慢落）
-        UpdateBreathing(frame.Value.BassEnergy);
+        UpdateBreathing(frame.LowEnergy);
         using (context.PushClip(new RoundedRect(Bounds, CornerRadius)))
         {
             var area = DrawingArea();
@@ -112,7 +90,9 @@ public sealed class SpectrumFxControl : Control
             var mode = _position switch { "Top" => 1, "Bottom" => -1, _ => 0 };
             using (PushBreathingTransform(context))
             {
-                if (_style == "Curve")
+                if (_style == "WaveBand")
+                    DrawWaveBand(context, drawBands, frame, area, mode);
+                else if (_style == "Curve")
                     DrawCurve(context, drawBands, area, mode, filled: true);
                 else if (_style == "Line")
                     DrawCurve(context, drawBands, area, mode, filled: false);
@@ -123,7 +103,7 @@ public sealed class SpectrumFxControl : Control
     }
 
     /// <summary>L/R 镜像布局：左半 = L 反向（左端高频→中心低频），右半 = R 正向（中心低频→右端高频）。</summary>
-    private float[] BuildLR(SpectrumFrame frame)
+    private float[] BuildLR(AudioFeatureFrame frame)
     {
         var n = frame.Left.Length;
         var m = 2 * n;
@@ -137,7 +117,7 @@ public sealed class SpectrumFxControl : Control
     }
 
     /// <summary>传统布局：左右声道平均，单频谱左低右高。</summary>
-    private float[] MergeToMono(SpectrumFrame frame)
+    private float[] MergeToMono(AudioFeatureFrame frame)
     {
         var n = frame.Left.Length;
         if (_monoBuf.Length != n)
@@ -202,6 +182,12 @@ public sealed class SpectrumFxControl : Control
         };
         _glowBrush = new ImmutableSolidColorBrush(Color.FromArgb(
             (byte)Math.Round(c.A * _opacity * 0.32), c.R, c.G, c.B));
+        _waveFillBrush = new ImmutableSolidColorBrush(Color.FromArgb(
+            (byte)Math.Round(c.A * _opacity * 0.10), c.R, c.G, c.B));
+        _waveSoftBrush = new ImmutableSolidColorBrush(Color.FromArgb(
+            (byte)Math.Round(c.A * _opacity * 0.22), c.R, c.G, c.B));
+        _waveCoreBrush = new ImmutableSolidColorBrush(Color.FromArgb(
+            (byte)Math.Round(c.A * _opacity * 0.72), c.R, c.G, c.B));
         _strokePen = new Pen(new ImmutableSolidColorBrush(solid), 2);
     }
 
@@ -309,6 +295,69 @@ public sealed class SpectrumFxControl : Control
             context.DrawGeometry(null, pen, geo);
         }
         context.DrawGeometry(filled ? _fill : Brushes.Transparent, _strokePen, geo);
+    }
+
+    /// <summary>
+    /// 柔光波带：用经过空间平滑的频带构造连续轮廓，再叠加模糊外光、柔光和清晰核心。
+    /// 低频控制厚度，中频控制起伏，高频与瞬态只提供少量边缘亮度，不直接抖动布局。
+    /// </summary>
+    private void DrawWaveBand(
+        DrawingContext context,
+        float[] bands,
+        AudioFeatureFrame frame,
+        Rect area,
+        int mode)
+    {
+        var count = bands.Length;
+        if (count < 2)
+            return;
+        if (_waveBuf.Length != count)
+            _waveBuf = new float[count];
+
+        for (var i = 0; i < count; i++)
+        {
+            var left = bands[Math.Max(0, i - 1)];
+            var center = bands[i];
+            var right = bands[Math.Min(count - 1, i + 1)];
+            var spatiallySmoothed = left * 0.24f + center * 0.52f + right * 0.24f;
+            _waveBuf[i] = Math.Clamp(
+                spatiallySmoothed * (0.5f + frame.MidEnergy * 0.38f) + frame.LowEnergy * 0.055f,
+                0,
+                1);
+        }
+
+        var baseline = mode switch { 1 => area.Top, -1 => area.Bottom, _ => area.Y + area.Height / 2 };
+        var maxPerSide = mode == 0 ? area.Height / 2 : area.Height;
+        var heightScale = maxPerSide * (0.38 + frame.MidEnergy * 0.16);
+        var step = area.Width / (count - 1);
+        var points = new Point[count];
+        for (var i = 0; i < count; i++)
+        {
+            var height = _waveBuf[i] * heightScale;
+            points[i] = new Point(area.X + i * step, mode == 1 ? baseline + height : baseline - height);
+        }
+
+        var ribbon = BuildCurveGeometry(points, baseline, mode, filled: true, area);
+        var edge = BuildCurveGeometry(points, baseline, mode, filled: false, area);
+        context.DrawGeometry(_waveFillBrush, null, ribbon);
+
+        if (_waveBlur != null)
+        {
+            var outerWidth = 8 + frame.LowEnergy * 20 + frame.Transient * 5;
+            var edgeBounds = edge.Bounds;
+            var effectBounds = new Rect(
+                edgeBounds.X - outerWidth / 2,
+                edgeBounds.Y - outerWidth / 2,
+                edgeBounds.Width + outerWidth,
+                edgeBounds.Height + outerWidth);
+            using (context.PushEffect(_waveBlur, effectBounds))
+                context.DrawGeometry(null, new Pen(_waveSoftBrush, outerWidth), edge);
+        }
+
+        var softWidth = 3 + frame.LowEnergy * 8;
+        context.DrawGeometry(null, new Pen(_waveSoftBrush, softWidth), edge);
+        var coreWidth = 1.2 + frame.HighEnergy * 1.8 + frame.Transient * 0.8;
+        context.DrawGeometry(null, new Pen(_waveCoreBrush, coreWidth), edge);
     }
 
     /// <summary>

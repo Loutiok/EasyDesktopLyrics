@@ -18,6 +18,7 @@ public sealed class BackgroundFxLayer : Grid
     private const int MaxFps = 120;
 
     private readonly SettingsService _settings;
+    private readonly AudioFeatureService _audioFeatures = new();
     private readonly SpectrumFxControl _spectrum = new();
     private readonly SnowFxControl _snow = new();
     private readonly FogFxControl _fog = new();
@@ -74,6 +75,7 @@ public sealed class BackgroundFxLayer : Grid
         var fps = Math.Clamp(bf.Fps, MinFps, MaxFps);
         _timer.Interval = TimeSpan.FromMilliseconds(1000.0 / fps);
         _spectrum.ApplySettings(bf.Spectrum);
+        _audioFeatures.Configure(bf.Spectrum.Smoothing, bf.Spectrum.BandCount);
         _snow.ApplySettings(bf.Snow);
         _fog.ApplySettings(bf.Fog);
         ApplyVisibility();
@@ -91,13 +93,13 @@ public sealed class BackgroundFxLayer : Grid
         // 开机自启时音频端点往往仍处于登录初始化阶段。不要在窗口尚未显示、播放器尚未
         // 真正播放时抢先绑定 WASAPI；等到首个可见播放状态再启动，避免永久捕获到无数据端点。
         var shouldStartSpectrum = s.Spectrum.Enabled && _windowVisible && _playing;
-        if (shouldStartSpectrum && !_spectrum.IsRunning)
+        if (shouldStartSpectrum && !_audioFeatures.IsRunning)
         {
-            _ = _spectrum.StartAsync();
+            _ = _audioFeatures.StartAsync();
         }
-        else if ((!s.Spectrum.Enabled || !_windowVisible) && _spectrum.IsRunning)
+        else if ((!s.Spectrum.Enabled || !_windowVisible) && _audioFeatures.IsRunning)
         {
-            _spectrum.Stop();
+            _audioFeatures.Stop();
         }
 
         if (anyEnabled && _windowVisible && !_timer.IsEnabled)
@@ -119,8 +121,8 @@ public sealed class BackgroundFxLayer : Grid
 
         if (_spectrum.IsVisible)
         {
-            _spectrum.SetPlaying(_playing);
-            _spectrum.TickAndInvalidate();
+            _audioFeatures.SetPlaying(_playing);
+            _spectrum.SetFrame(_audioFeatures.Advance(dt));
         }
         if (_snow.IsVisible)
             _snow.TickAndInvalidate(dt);
@@ -133,7 +135,7 @@ public sealed class BackgroundFxLayer : Grid
         base.OnDetachedFromVisualTree(e);
         _timer.Stop();
         _settings.Changed -= OnSettingsChanged;
-        _spectrum.Stop();
+        _audioFeatures.Dispose();
         _fog.Dispose();
     }
 }
