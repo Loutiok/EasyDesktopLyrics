@@ -114,7 +114,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         nameof(SelectedPresetIndex), nameof(PositionXPct), nameof(PositionYPct), nameof(AlignmentIndex), nameof(SelectedFontFamily),
         nameof(HeightGrowIndex),
         nameof(BgFps),
-        nameof(AuroraEnabled), nameof(AuroraOpacityVal), nameof(AuroraCoverOpacityVal),
+        nameof(AuroraEnabled), nameof(AuroraOverallOpacityVal), nameof(AuroraOpacityVal), nameof(AuroraCoverOpacityVal),
         nameof(AuroraBlurVal), nameof(AuroraDimVal), nameof(AuroraFlowVal),
         nameof(AuroraAudioReactiveEnabled), nameof(AuroraAudioResponseVal),
         nameof(SpectrumEnabled), nameof(SpectrumPositionIndex), nameof(SpectrumStyleIndex),

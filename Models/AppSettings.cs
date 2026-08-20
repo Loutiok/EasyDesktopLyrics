@@ -215,6 +215,9 @@ public sealed class CoverAuroraFxSettings
 {
     public bool Enabled { get; set; }
 
+    /// <summary>整套封面背景的不透明度（0–1）。</summary>
+    public double OverallOpacity { get; set; } = 1;
+
     /// <summary>极光整体不透明度（0.05–1）。</summary>
     public double Opacity { get; set; } = 0.42;
 

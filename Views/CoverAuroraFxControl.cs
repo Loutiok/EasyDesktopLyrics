@@ -25,6 +25,7 @@ public sealed class CoverAuroraFxControl : Control, IDisposable
     private IBrush? _dimBrush;
     private bool _enabled;
     private bool _audioReactive = true;
+    private double _overallOpacity = 1;
     private double _opacity = 0.42;
     private double _coverOpacity = 0.24;
     private double _blurRadius = 18;
@@ -48,6 +49,7 @@ public sealed class CoverAuroraFxControl : Control, IDisposable
     public void ApplySettings(CoverAuroraFxSettings settings)
     {
         _enabled = settings.Enabled;
+        _overallOpacity = Math.Clamp(settings.OverallOpacity, 0, 1);
         _opacity = Math.Clamp(settings.Opacity, 0.05, 1);
         _coverOpacity = Math.Clamp(settings.CoverOpacity, 0, 0.8);
         _blurRadius = Math.Clamp(settings.BlurRadius, 0, 36);
@@ -56,8 +58,8 @@ public sealed class CoverAuroraFxControl : Control, IDisposable
         _audioReactive = settings.AudioReactive;
         _audioResponse = Math.Clamp(settings.AudioResponse, 0, 1);
         _coverBlur = _blurRadius > 0 ? new BlurEffect { Radius = _blurRadius } : null;
-        _dimBrush = _dimAmount > 0
-            ? new SolidColorBrush(Color.FromArgb((byte)Math.Round(255 * _dimAmount), 7, 8, 14))
+        _dimBrush = _dimAmount > 0 && _overallOpacity > 0
+            ? new SolidColorBrush(Color.FromArgb((byte)Math.Round(255 * _dimAmount * _overallOpacity), 7, 8, 14))
             : null;
         RebuildCoverBrush();
         _brushCache.Clear();
@@ -137,7 +139,7 @@ public sealed class CoverAuroraFxControl : Control, IDisposable
 
     private IBrush GetAuroraBrush(Color color, double audioOpacity)
     {
-        var opacity = Math.Clamp(_opacity * audioOpacity, 0, 1);
+        var opacity = Math.Clamp(_opacity * _overallOpacity * audioOpacity, 0, 1);
         var opacityStep = (int)Math.Round(opacity * 40);
         var key = $"{color.R}|{color.G}|{color.B}|{opacityStep}";
         if (_brushCache.TryGetValue(key, out var cached))
@@ -159,13 +161,13 @@ public sealed class CoverAuroraFxControl : Control, IDisposable
 
     private void RebuildCoverBrush()
     {
-        _coverBrush = _coverImage is not IImageBrushSource brushSource || _coverOpacity <= 0
+        _coverBrush = _coverImage is not IImageBrushSource brushSource || _coverOpacity <= 0 || _overallOpacity <= 0
             ? null
             : new ImageBrush
             {
                 Source = brushSource,
                 Stretch = Stretch.UniformToFill,
-                Opacity = _coverOpacity,
+                Opacity = _coverOpacity * _overallOpacity,
             };
     }
 

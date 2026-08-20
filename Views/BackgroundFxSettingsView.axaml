@@ -43,6 +43,14 @@
         <Border IsVisible="{Binding AuroraEnabled}">
           <StackPanel Spacing="8">
             <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="整体不透明度" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.05"
+                      Value="{Binding AuroraOverallOpacityVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding AuroraOverallOpacityVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F2}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
               <TextBlock Classes="sectionLabel" Text="极光强度" />
               <Slider Grid.Column="1" Minimum="0.05" Maximum="1" TickFrequency="0.05"
                       Value="{Binding AuroraOpacityVal, Mode=TwoWay}" />

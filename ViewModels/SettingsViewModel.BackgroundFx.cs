@@ -34,6 +34,17 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    public double AuroraOverallOpacityVal
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.OverallOpacity;
+        set
+        {
+            var v = Math.Round(value, 2);
+            if (Math.Abs(v - _settings.Current.BackgroundFx.CoverAurora.OverallOpacity) < 0.01) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.OverallOpacity = Math.Clamp(v, 0, 1));
+        }
+    }
+
     public double AuroraOpacityVal
     {
         get => _settings.Current.BackgroundFx.CoverAurora.Opacity;
