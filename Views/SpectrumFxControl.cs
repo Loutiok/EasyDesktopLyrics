@@ -183,11 +183,11 @@ public sealed class SpectrumFxControl : Control
         _glowBrush = new ImmutableSolidColorBrush(Color.FromArgb(
             (byte)Math.Round(c.A * _opacity * 0.32), c.R, c.G, c.B));
         _waveFillBrush = new ImmutableSolidColorBrush(Color.FromArgb(
-            (byte)Math.Round(c.A * _opacity * 0.10), c.R, c.G, c.B));
+            (byte)Math.Round(c.A * _opacity * 0.20), c.R, c.G, c.B));
         _waveSoftBrush = new ImmutableSolidColorBrush(Color.FromArgb(
-            (byte)Math.Round(c.A * _opacity * 0.22), c.R, c.G, c.B));
+            (byte)Math.Round(c.A * _opacity * 0.44), c.R, c.G, c.B));
         _waveCoreBrush = new ImmutableSolidColorBrush(Color.FromArgb(
-            (byte)Math.Round(c.A * _opacity * 0.72), c.R, c.G, c.B));
+            (byte)Math.Round(c.A * _opacity * 0.92), c.R, c.G, c.B));
         _strokePen = new Pen(new ImmutableSolidColorBrush(solid), 2);
     }
 
@@ -320,15 +320,25 @@ public sealed class SpectrumFxControl : Control
             var center = bands[i];
             var right = bands[Math.Min(count - 1, i + 1)];
             var spatiallySmoothed = left * 0.24f + center * 0.52f + right * 0.24f;
+
+            // FFT values spend most of their time in the lower part of 0..1. A linear mapping
+            // made even a 90% drawing area look like a flat line. Remove the noise floor and use
+            // a soft-knee curve so quiet detail stays visible without flattening loud peaks.
+            var gated = Math.Clamp((spatiallySmoothed - 0.006f) / 0.994f, 0, 1);
+            var shaped = MathF.Pow(gated, 0.46f);
+            var activity = Math.Clamp(
+                0.34f + MathF.Sqrt(frame.Loudness) * 0.78f + frame.Transient * 0.12f,
+                0,
+                1);
             _waveBuf[i] = Math.Clamp(
-                spatiallySmoothed * (0.5f + frame.MidEnergy * 0.38f) + frame.LowEnergy * 0.055f,
+                shaped * activity + MathF.Sqrt(frame.LowEnergy) * 0.055f,
                 0,
                 1);
         }
 
         var baseline = mode switch { 1 => area.Top, -1 => area.Bottom, _ => area.Y + area.Height / 2 };
         var maxPerSide = mode == 0 ? area.Height / 2 : area.Height;
-        var heightScale = maxPerSide * (0.38 + frame.MidEnergy * 0.16);
+        var heightScale = maxPerSide * (0.68 + frame.MidEnergy * 0.22);
         var step = area.Width / (count - 1);
         var points = new Point[count];
         for (var i = 0; i < count; i++)
@@ -343,7 +353,7 @@ public sealed class SpectrumFxControl : Control
 
         if (_waveBlur != null)
         {
-            var outerWidth = 8 + frame.LowEnergy * 20 + frame.Transient * 5;
+            var outerWidth = 14 + frame.LowEnergy * 26 + frame.Transient * 8;
             var edgeBounds = edge.Bounds;
             var effectBounds = new Rect(
                 edgeBounds.X - outerWidth / 2,
@@ -354,9 +364,9 @@ public sealed class SpectrumFxControl : Control
                 context.DrawGeometry(null, new Pen(_waveSoftBrush, outerWidth), edge);
         }
 
-        var softWidth = 3 + frame.LowEnergy * 8;
+        var softWidth = 5 + frame.LowEnergy * 11;
         context.DrawGeometry(null, new Pen(_waveSoftBrush, softWidth), edge);
-        var coreWidth = 1.2 + frame.HighEnergy * 1.8 + frame.Transient * 0.8;
+        var coreWidth = 2 + frame.HighEnergy * 2.2 + frame.Transient;
         context.DrawGeometry(null, new Pen(_waveCoreBrush, coreWidth), edge);
     }
 
