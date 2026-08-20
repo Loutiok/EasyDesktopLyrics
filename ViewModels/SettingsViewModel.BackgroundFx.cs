@@ -22,6 +22,94 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    // ---------- 封面极光 ----------
+
+    public bool AuroraEnabled
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.Enabled;
+        set
+        {
+            if (value == AuroraEnabled) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.Enabled = value);
+        }
+    }
+
+    public double AuroraOpacityVal
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.Opacity;
+        set
+        {
+            var v = Math.Round(value, 2);
+            if (Math.Abs(v - _settings.Current.BackgroundFx.CoverAurora.Opacity) < 0.01) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.Opacity = Math.Clamp(v, 0.05, 1));
+        }
+    }
+
+    public double AuroraCoverOpacityVal
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.CoverOpacity;
+        set
+        {
+            var v = Math.Round(value, 2);
+            if (Math.Abs(v - _settings.Current.BackgroundFx.CoverAurora.CoverOpacity) < 0.01) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.CoverOpacity = Math.Clamp(v, 0, 0.8));
+        }
+    }
+
+    public double AuroraBlurVal
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.BlurRadius;
+        set
+        {
+            var v = Math.Round(value);
+            if (Math.Abs(v - _settings.Current.BackgroundFx.CoverAurora.BlurRadius) < 1) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.BlurRadius = Math.Clamp(v, 0, 36));
+        }
+    }
+
+    public double AuroraDimVal
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.DimAmount;
+        set
+        {
+            var v = Math.Round(value, 2);
+            if (Math.Abs(v - _settings.Current.BackgroundFx.CoverAurora.DimAmount) < 0.01) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.DimAmount = Math.Clamp(v, 0, 0.8));
+        }
+    }
+
+    public double AuroraFlowVal
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.FlowSpeed;
+        set
+        {
+            var v = Math.Round(value, 2);
+            if (Math.Abs(v - _settings.Current.BackgroundFx.CoverAurora.FlowSpeed) < 0.01) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.FlowSpeed = Math.Clamp(v, 0, 2));
+        }
+    }
+
+    public bool AuroraAudioReactiveEnabled
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.AudioReactive;
+        set
+        {
+            if (value == AuroraAudioReactiveEnabled) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.AudioReactive = value);
+        }
+    }
+
+    public double AuroraAudioResponseVal
+    {
+        get => _settings.Current.BackgroundFx.CoverAurora.AudioResponse;
+        set
+        {
+            var v = Math.Round(value, 2);
+            if (Math.Abs(v - _settings.Current.BackgroundFx.CoverAurora.AudioResponse) < 0.01) return;
+            _settings.Update(s => s.BackgroundFx.CoverAurora.AudioResponse = Math.Clamp(v, 0, 1));
+        }
+    }
+
     // ---------- 频谱 ----------
 
     public bool SpectrumEnabled

@@ -1,8 +1,6 @@
-using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
 using EasyDesktopLyrics.Models;
 using EasyDesktopLyrics.Services;
 
@@ -49,13 +47,9 @@ public sealed class FogFxControl : Control, IDisposable
 
     public void SetCoverImage(IImage? image)
     {
-        var c = AverageCoverColor(image);
-        if (c != null)
-        {
-            _cover = c.Value;
-            _brushCache.Clear();
-            InvalidateVisual();
-        }
+        _cover = CoverPaletteExtractor.Extract(image).Average;
+        _brushCache.Clear();
+        InvalidateVisual();
     }
 
     public void SetScreenRectProvider(Func<(int X, int Y, int W, int H)> provider) =>
@@ -175,48 +169,6 @@ public sealed class FogFxControl : Control, IDisposable
         };
         _brushCache[key] = brush;
         return brush;
-    }
-
-    private static Color? AverageCoverColor(IImage? image)
-    {
-        if (image is not Bitmap bmp)
-            return null;
-        try
-        {
-            var w = bmp.PixelSize.Width;
-            var h = bmp.PixelSize.Height;
-            if (w <= 0 || h <= 0)
-                return null;
-            var stride = w * 4;
-            var buf = new byte[stride * h];
-            var handle = GCHandle.Alloc(buf, GCHandleType.Pinned);
-            try
-            {
-                bmp.CopyPixels(new PixelRect(0, 0, w, h), handle.AddrOfPinnedObject(), buf.Length, stride);
-            }
-            finally
-            {
-                handle.Free();
-            }
-            long r = 0, g = 0, b = 0;
-            for (var y = 0; y < h; y++)
-            {
-                var row = y * stride;
-                for (var x = 0; x < w; x++)
-                {
-                    var o = row + x * 4;
-                    b += buf[o];
-                    g += buf[o + 1];
-                    r += buf[o + 2];
-                }
-            }
-            var n = w * h;
-            return Color.FromRgb((byte)(r / n), (byte)(g / n), (byte)(b / n));
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     public void Dispose() => _brushCache.Clear();

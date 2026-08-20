@@ -195,7 +195,7 @@ public sealed class PlayerPriority
     public bool Enabled { get; set; } = true;
 }
 
-/// <summary>背景动效设置（频谱/飘雪/雾层），均默认关闭，与主功能解耦。</summary>
+/// <summary>背景动效设置（封面极光/频谱/飘雪/雾层），均默认关闭，与主功能解耦。</summary>
 public sealed class BackgroundFxSettings
 {
     /// <summary>渲染帧率（30–120）。</summary>
@@ -203,9 +203,37 @@ public sealed class BackgroundFxSettings
 
     public SpectrumFxSettings Spectrum { get; set; } = new();
 
+    public CoverAuroraFxSettings CoverAurora { get; set; } = new();
+
     public SnowFxSettings Snow { get; set; } = new();
 
     public FogFxSettings Fog { get; set; } = new();
+}
+
+/// <summary>封面取色驱动的极光与轻量模糊背景。</summary>
+public sealed class CoverAuroraFxSettings
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>极光整体不透明度（0.05–1）。</summary>
+    public double Opacity { get; set; } = 0.42;
+
+    /// <summary>模糊封面底图不透明度（0–0.8，0 = 关闭底图）。</summary>
+    public double CoverOpacity { get; set; } = 0.24;
+
+    /// <summary>封面底图模糊半径（0–36）。</summary>
+    public double BlurRadius { get; set; } = 18;
+
+    /// <summary>暗色遮罩强度（0–0.8），用于保持歌词可读性。</summary>
+    public double DimAmount { get; set; } = 0.30;
+
+    /// <summary>极光流动速度（0–2）。</summary>
+    public double FlowSpeed { get; set; } = 0.35;
+
+    public bool AudioReactive { get; set; } = true;
+
+    /// <summary>低频对极光尺寸和亮度的影响（0–1）。</summary>
+    public double AudioResponse { get; set; } = 0.35;
 }
 
 /// <summary>频谱动效设置。</summary>

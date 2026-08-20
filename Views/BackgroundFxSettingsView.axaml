@@ -12,7 +12,7 @@
         <StackPanel Spacing="2">
           <TextBlock Classes="cardTitle" Text="背景动效" />
           <TextBlock Classes="cardDesc"
-                     Text="在歌词背面的视觉效果（频谱 / 飘雪 / 雾层），默认全部关闭。所有效果仅在歌词窗口显示时运行，与播放/暂停无关。" />
+                     Text="在歌词背面的视觉效果（封面极光 / 频谱 / 飘雪 / 雾层），默认全部关闭。所有效果仅在歌词窗口显示时运行。" />
         </StackPanel>
         <Grid ColumnDefinitions="140,*" ColumnSpacing="14">
           <TextBlock Classes="sectionLabel" Text="渲染帧率 (fps)" />
@@ -25,6 +25,78 @@
           </Grid>
         </Grid>
         <TextBlock Text="⚠ 帧率越高 CPU / GPU 占用越大（尤其是频谱）。普通使用建议保持 30fps，追求流畅可调至 60；120fps 仅适合高性能设备。" FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
+      </StackPanel>
+    </Border>
+
+    <!-- 封面极光 -->
+    <Border Classes="card">
+      <StackPanel Spacing="10">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+          <StackPanel Spacing="2">
+            <TextBlock Classes="cardTitle" Text="封面极光" />
+            <TextBlock Classes="cardDesc"
+                       Text="从当前封面提取主色、次色和强调色，叠加缓慢流动的极光与轻量模糊封面底图。" />
+          </StackPanel>
+          <ToggleSwitch Grid.Column="1" IsChecked="{Binding AuroraEnabled, Mode=TwoWay}"
+                        OnContent="" OffContent="" VerticalAlignment="Center" />
+        </Grid>
+        <Border IsVisible="{Binding AuroraEnabled}">
+          <StackPanel Spacing="8">
+            <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="极光强度" />
+              <Slider Grid.Column="1" Minimum="0.05" Maximum="1" TickFrequency="0.05"
+                      Value="{Binding AuroraOpacityVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding AuroraOpacityVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F2}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="模糊封面强度" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="0.8" TickFrequency="0.05"
+                      Value="{Binding AuroraCoverOpacityVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding AuroraCoverOpacityVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F2}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="模糊半径" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="36" TickFrequency="2"
+                      Value="{Binding AuroraBlurVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding AuroraBlurVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F0}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="暗色遮罩" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="0.8" TickFrequency="0.05"
+                      Value="{Binding AuroraDimVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding AuroraDimVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F2}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14">
+              <TextBlock Classes="sectionLabel" Text="流动速度" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="2" TickFrequency="0.05"
+                      Value="{Binding AuroraFlowVal, Mode=TwoWay}" ToolTip.Tip="0 = 静止" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding AuroraFlowVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F2}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <CheckBox Content="低频呼吸（只改变极光尺寸与亮度）"
+                      IsChecked="{Binding AuroraAudioReactiveEnabled, Mode=TwoWay}" />
+            <Grid ColumnDefinitions="140,*,64" ColumnSpacing="14" Margin="20,0,0,0"
+                  IsVisible="{Binding AuroraAudioReactiveEnabled}">
+              <TextBlock Classes="sectionLabel" Text="低频响应" />
+              <Slider Grid.Column="1" Minimum="0" Maximum="1" TickFrequency="0.05"
+                      Value="{Binding AuroraAudioResponseVal, Mode=TwoWay}" />
+              <TextBox Grid.Column="2" MinHeight="28" Padding="8,2"
+                       Text="{Binding AuroraAudioResponseVal, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat='{}{0:F2}'}"
+                       TextAlignment="Right" VerticalAlignment="Center" FontSize="12" />
+            </Grid>
+            <TextBlock Text="封面只在切歌时重新取色；极光与频谱共享同一次音频捕获。适当提高暗色遮罩可保持歌词清晰。"
+                       FontSize="11" Opacity="0.6" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
       </StackPanel>
     </Border>
 

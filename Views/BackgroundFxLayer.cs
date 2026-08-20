@@ -9,7 +9,7 @@ using EasyDesktopLyrics.Services;
 namespace EasyDesktopLyrics.Views;
 
 /// <summary>
-/// 背景动效层：承载 频谱 / 飘雪 / 雾层 三个相互独立的子效果，
+/// 背景动效层：承载 封面极光 / 频谱 / 飘雪 / 雾层四个相互独立的子效果，
 /// 共用单个渲染定时器（帧率由设置控制）。默认全部关闭 = 零开销。
 /// </summary>
 public sealed class BackgroundFxLayer : Grid
@@ -19,6 +19,7 @@ public sealed class BackgroundFxLayer : Grid
 
     private readonly SettingsService _settings;
     private readonly AudioFeatureService _audioFeatures = new();
+    private readonly CoverAuroraFxControl _coverAurora = new();
     private readonly SpectrumFxControl _spectrum = new();
     private readonly SnowFxControl _snow = new();
     private readonly FogFxControl _fog = new();
@@ -31,6 +32,7 @@ public sealed class BackgroundFxLayer : Grid
     {
         _settings = settings;
         IsHitTestVisible = false;
+        Children.Add(_coverAurora);
         Children.Add(_spectrum);
         Children.Add(_snow);
         Children.Add(_fog);
@@ -54,8 +56,12 @@ public sealed class BackgroundFxLayer : Grid
     public void SetLyricsRect(Rect rect) =>
         _spectrum.LyricsRect = rect.Width > 0 && rect.Height > 0 ? rect : null;
 
-    /// <summary>当前曲目封面（雾层取主色）。</summary>
-    public void SetCoverImage(IImage? image) => _fog.SetCoverImage(image);
+    /// <summary>当前曲目封面（共享取色结果供雾层与极光层使用）。</summary>
+    public void SetCoverImage(IImage? image)
+    {
+        _coverAurora.SetCoverImage(image);
+        _fog.SetCoverImage(image);
+    }
 
     /// <summary>窗口物理屏幕矩形提供者（雾层背后取色）。</summary>
     public void SetScreenRect(Func<(int X, int Y, int W, int H)> provider) => _fog.SetScreenRectProvider(provider);
@@ -74,6 +80,7 @@ public sealed class BackgroundFxLayer : Grid
         var bf = _settings.Current.BackgroundFx;
         var fps = Math.Clamp(bf.Fps, MinFps, MaxFps);
         _timer.Interval = TimeSpan.FromMilliseconds(1000.0 / fps);
+        _coverAurora.ApplySettings(bf.CoverAurora);
         _spectrum.ApplySettings(bf.Spectrum);
         _audioFeatures.Configure(bf.Spectrum.Smoothing, bf.Spectrum.BandCount);
         _snow.ApplySettings(bf.Snow);
@@ -84,20 +91,23 @@ public sealed class BackgroundFxLayer : Grid
     private void ApplyVisibility()
     {
         var s = _settings.Current.BackgroundFx;
-        var anyEnabled = s.Spectrum.Enabled || s.Snow.Enabled || s.Fog.Enabled;
+        var anyEnabled = s.CoverAurora.Enabled || s.Spectrum.Enabled || s.Snow.Enabled || s.Fog.Enabled;
 
+        _coverAurora.IsVisible = _windowVisible && s.CoverAurora.Enabled;
         _spectrum.IsVisible = _windowVisible && s.Spectrum.Enabled;
         _snow.IsVisible = _windowVisible && s.Snow.Enabled;
         _fog.IsVisible = _windowVisible && s.Fog.Enabled;
 
         // 开机自启时音频端点往往仍处于登录初始化阶段。不要在窗口尚未显示、播放器尚未
         // 真正播放时抢先绑定 WASAPI；等到首个可见播放状态再启动，避免永久捕获到无数据端点。
-        var shouldStartSpectrum = s.Spectrum.Enabled && _windowVisible && _playing;
-        if (shouldStartSpectrum && !_audioFeatures.IsRunning)
+        var needsAudio = s.Spectrum.Enabled ||
+            (s.CoverAurora.Enabled && s.CoverAurora.AudioReactive && s.CoverAurora.AudioResponse > 0);
+        var shouldStartAudio = needsAudio && _windowVisible && _playing;
+        if (shouldStartAudio && !_audioFeatures.IsRunning)
         {
             _ = _audioFeatures.StartAsync();
         }
-        else if ((!s.Spectrum.Enabled || !_windowVisible) && _audioFeatures.IsRunning)
+        else if ((!needsAudio || !_windowVisible) && _audioFeatures.IsRunning)
         {
             _audioFeatures.Stop();
         }
@@ -119,10 +129,19 @@ public sealed class BackgroundFxLayer : Grid
         var dt = Math.Max(0.001, (now - _lastTick) / 1000.0);
         _lastTick = now;
 
-        if (_spectrum.IsVisible)
+        var audioFrame = AudioFeatureFrame.Empty;
+        if ((_spectrum.IsVisible || (_coverAurora.IsVisible && _coverAurora.UsesAudio)) &&
+            _audioFeatures.IsRunning)
         {
             _audioFeatures.SetPlaying(_playing);
-            _spectrum.SetFrame(_audioFeatures.Advance(dt));
+            audioFrame = _audioFeatures.Advance(dt);
+        }
+
+        if (_coverAurora.IsVisible)
+            _coverAurora.TickAndInvalidate(dt, audioFrame);
+        if (_spectrum.IsVisible)
+        {
+            _spectrum.SetFrame(audioFrame);
         }
         if (_snow.IsVisible)
             _snow.TickAndInvalidate(dt);
@@ -136,6 +155,7 @@ public sealed class BackgroundFxLayer : Grid
         _timer.Stop();
         _settings.Changed -= OnSettingsChanged;
         _audioFeatures.Dispose();
+        _coverAurora.Dispose();
         _fog.Dispose();
     }
 }
