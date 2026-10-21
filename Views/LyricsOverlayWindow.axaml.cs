@@ -1270,6 +1270,7 @@ public sealed partial class LyricsOverlayWindow : Window
         if (_hwnd != IntPtr.Zero)
             Win32.AssertTopmost(_hwnd);
         SetLocked(_settingsService.Current.Locked);
+        Win32.HideFromAltTab(_hwnd);   // ← 新增：从 Alt+Tab 列表隐藏
         UpdatePlayPauseIcon();
         ApplyAnchor();
         UpdateVisibility();
