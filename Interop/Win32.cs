@@ -15,6 +15,7 @@ internal static class Win32
     private const int GWL_EXSTYLE = -20;
     private const uint WS_EX_TRANSPARENT = 0x00000020;
     private const uint WS_EX_LAYERED = 0x00080000;
+    private const uint WS_EX_TOOLWINDOW = 0x00000080;
 
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
@@ -95,6 +96,28 @@ internal static class Win32
         // 关键：触发 FRAMECHANGED 让 DWM 重新合成窗口样式，穿透即时生效
         SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
+
+    /// <summary>
+    /// 把窗口标记为工具窗口（WS_EX_TOOLWINDOW）：不出现在 Alt+Tab 列表和任务栏。
+    /// 按位或添加，不影响 WS_EX_TRANSPARENT / WS_EX_LAYERED（与 SetClickThrough 共存）。
+    /// </summary>
+    public static void HideFromAltTab(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero) return;
+
+        var style = GetExStyle(hwnd);
+        if ((style & WS_EX_TOOLWINDOW) != 0)
+            return; // 已设置，避免重复触发 FRAMECHANGED
+
+        style |= WS_EX_TOOLWINDOW;
+        SetExStyle(hwnd, style);
+
+        // 让 DWM 立即重新合成窗口样式（Alt+Tab 列表即时刷新）
+        SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+        Log.Info("win32: WS_EX_TOOLWINDOW applied");
     }
 
     private static uint GetExStyle(IntPtr hwnd)
