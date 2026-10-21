@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
+using EasyDesktopLyrics.Infrastructure;
 
 namespace EasyDesktopLyrics.Interop;
 
