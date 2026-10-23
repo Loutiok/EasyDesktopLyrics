@@ -48,6 +48,7 @@ public sealed partial class LyricsOrchestrator
     private LyricTimingFrame _timingFrame = LyricTimingFrame.None;
     private bool _suppressLineTransition;
     private bool _waitingForFreshPosition;   // 切歌后到新歌词就绪前，SMTC 位置不可信
+    private DateTimeOffset _trackChangedAt;
 
     public LyricsOrchestrator(
         SmtcService smtc,
@@ -142,6 +143,7 @@ public sealed partial class LyricsOrchestrator
         // 切歌后到新歌词就绪前，SMTC 可能推送旧曲位置（PositionAt 新鲜但位置属于旧曲）。
         // 置位后 OnPlaybackChanged 会让 PlaybackClock 只更新 IsPlaying，不采用位置。
         _waitingForFreshPosition = true;
+        _trackChangedAt = DateTimeOffset.UtcNow;
 
         _cts?.Cancel();
         _cts = null;
@@ -176,32 +178,49 @@ public sealed partial class LyricsOrchestrator
 
     private void OnPlaybackChanged(PlaybackSnapshot snapshot)
     {
-        // 切歌后到新歌词就绪前，把 PositionAt 设为一个久远时间，
-        // 让 PlaybackClock.Sync 判定"时间线不可用"（age > 30s），
-        // 从而走降级分支：只更新 IsPlaying，不采用 snapshot.Position。
-        // 这样位置保持 TrackChanged 时 Reset 后的 0，新歌词就绪时不会定位到结尾。
+        // 切歌后 2 秒内，SMTC 可能连续推送多个"旧曲残留"事件：
+        // Duration 已更新为新曲，但 Position 还是旧曲的，且可能推多个。
+        // 只拦第一个不够（后续会被接受 → 跳到旧位置 → 闪过其他歌词）。
+        // 因此窗口内的所有事件都不采用 Position，只更新 IsPlaying，
+        // 位置由挂钟从 TrackChanged 时 Reset 的 0 稳步驱动。
         if (_waitingForFreshPosition)
-            snapshot = snapshot with { PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
-            // 若 PlaybackSnapshot 不是 record 导致 with 不可用，改为：
-            // snapshot = new PlaybackSnapshot
-            // {
-            //     Position = snapshot.Position,
-            //     PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1),
-            //     Duration = snapshot.Duration,
-            //     Rate = snapshot.Rate,
-            //     IsPlaying = snapshot.IsPlaying,
-            // };
+        {
+            var elapsed = DateTimeOffset.UtcNow - _trackChangedAt;
+            if (elapsed < TimeSpan.FromSeconds(2))
+            {
+                Log.Info($"playback zeroed (settling after track change): " +
+                         $"elapsed={elapsed.TotalMilliseconds:F0}ms " +
+                         $"pos={snapshot.Position.TotalSeconds:F2}s " +
+                         $"dur={snapshot.Duration.TotalSeconds:F2}s");
+                // 只更新 IsPlaying（PlaybackClock 走降级分支），不采用 Position
+                snapshot = snapshot with { PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
+                // 若 PlaybackSnapshot 不是 record 导致 with 不可用，改为：
+                // snapshot = new PlaybackSnapshot
+                // {
+                //     Position = snapshot.Position,
+                //     PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1),
+                //     Duration = snapshot.Duration,
+                //     Rate = snapshot.Rate,
+                //     IsPlaying = snapshot.IsPlaying,
+                // };
+            }
+            else
+            {
+                Log.Info($"playback accepted (settled): pos={snapshot.Position.TotalSeconds:F2}s " +
+                         $"elapsed={elapsed.TotalSeconds:F2}s");
+                _waitingForFreshPosition = false;
+            }
+        }
 
         var posBefore = _clock.Estimate();
         _clock.Sync(snapshot);
         UpdateTimer();
-        // seek/时间轴跳变（>2s）时立即强制重定位当前行，不等下一次 timer tick
         var jump = _clock.Estimate() - posBefore;
         var seekJumped = jump > TimeSpan.FromSeconds(2) || jump < -TimeSpan.FromSeconds(2);
         if (seekJumped)
             _suppressLineTransition = true;
         Tick(forceRaise: seekJumped);
-        Raise(); // IsPlaying 可能变化
+        Raise();
     }
 
     private async Task ResolveAndApplyAsync(TrackInfo t, bool force, CancellationToken ct)
@@ -249,7 +268,6 @@ public sealed partial class LyricsOrchestrator
                 }
             }
 
-            _waitingForFreshPosition = false; // 文档已就绪，恢复接收位置
 
             Phase = doc != null ? LyricsPhase.Ready : LyricsPhase.NoLyric;
             Log.Info($"lyric {(doc != null ? $"ready ({doc.Lines.Count} lines, words={_hasWords})" : "not found")}: {t.Title}");
