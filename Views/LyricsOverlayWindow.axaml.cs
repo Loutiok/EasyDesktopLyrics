@@ -354,6 +354,7 @@ public sealed partial class LyricsOverlayWindow : Window
             return;
         if (suppress || _coverAnimating || !IsVisible)
         {
+            ClearExitOverlays();   //抑制动效时清理残留覆盖层
             SyncLastLineText();
             return;
         }
@@ -1016,9 +1017,17 @@ public sealed partial class LyricsOverlayWindow : Window
         SyncWindowHeight();
     }
 
-    /// <summary>歌词加载完成（Ready/NoLyric）→ 动画进入结束阶段；未达到最短时长则等待补齐。</summary>
     private void OnLyricsPhaseChanged()
     {
+        // 切歌/重新解析：立即清理可能残留的退出覆盖层（旧曲行切换的动画快照）。
+        // 否则旧曲的那一行会作为 LyricsArea 的覆盖层短暂显示在新歌歌词上方，
+        // 直到原动画的延迟移除任务（约 200ms）才消失。
+        if (_vm.Phase is LyricsPhase.Resolving or LyricsPhase.NoSession)
+        {
+            ClearExitOverlays();
+            CancelLineAnimation();
+        }
+
         if (!_coverAnimating)
             return;
         if (_vm.Phase is LyricsPhase.Ready or LyricsPhase.NoLyric)
