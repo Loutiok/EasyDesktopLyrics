@@ -71,6 +71,8 @@ public sealed partial class LyricsOverlayWindow : Window
     private string _lastTransText = "";
     private Control? _exitMainOverlay;
     private Control? _exitTransOverlay;
+    private Control? _crossfadeMain;
+    private Control? _crossfadeTrans;
 
     public event Action<double, double>? AnchorChanged;
 
@@ -532,6 +534,18 @@ public sealed partial class LyricsOverlayWindow : Window
             LyricsArea.Children.Remove(_exitTransOverlay);
             _exitTransOverlay = null;
         }
+        // Crossfade 的覆盖层在 _mainGrid / _transGrid 上，不在 LyricsArea 上。
+        // 切歌时必须一并清理，否则会残留旧曲句子 ~300ms（"闪旧句"）。
+        if (_crossfadeMain != null)
+        {
+            _mainGrid.Children.Remove(_crossfadeMain);
+            _crossfadeMain = null;
+        }
+        if (_crossfadeTrans != null)
+        {
+            _transGrid.Children.Remove(_crossfadeTrans);
+            _crossfadeTrans = null;
+        }
     }
 
     /// <summary>淡入/位移淡入/缩放弹入：主行与翻译行整体从起始状态过渡到最终状态。</summary>
@@ -585,7 +599,6 @@ public sealed partial class LyricsOverlayWindow : Window
     {
         var s = _settingsService.Current;
         var dur = TimeSpan.FromMilliseconds(durMs);
-        var easing = EasingFor(s.LineTransitionEasing);
 
         _mainGrid.Opacity = 1;
         _transGrid.Opacity = 1;
@@ -594,13 +607,23 @@ public sealed partial class LyricsOverlayWindow : Window
         {
             var old = CreateExitLyric(_lastMainText);
             _mainGrid.Children.Add(old);
-            FadeOutAndRemove(_mainGrid, old, dur);
+            _crossfadeMain = old;
+            FadeOutAndRemove(_mainGrid, old, dur, () =>
+            {
+                if (ReferenceEquals(_crossfadeMain, old))
+                    _crossfadeMain = null;
+            });
         }
         if (s.ShowTranslation && _lastTransText.Length > 0)
         {
             var oldT = CreateExitTranslation(_lastTransText);
             _transGrid.Children.Add(oldT);
-            FadeOutAndRemove(_transGrid, oldT, dur);
+            _crossfadeTrans = oldT;
+            FadeOutAndRemove(_transGrid, oldT, dur, () =>
+            {
+                if (ReferenceEquals(_crossfadeTrans, oldT))
+                    _crossfadeTrans = null;
+            });
         }
     }
 
