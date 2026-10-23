@@ -47,6 +47,7 @@ public sealed partial class LyricsOrchestrator
     private bool _hasWords;
     private LyricTimingFrame _timingFrame = LyricTimingFrame.None;
     private bool _suppressLineTransition;
+    private bool _waitingForFreshPosition;   // 切歌后到新歌词就绪前，SMTC 位置不可信
 
     public LyricsOrchestrator(
         SmtcService smtc,
@@ -138,6 +139,10 @@ public sealed partial class LyricsOrchestrator
 
     private void OnTrackChanged(TrackInfo? t)
     {
+        // 切歌后到新歌词就绪前，SMTC 可能推送旧曲位置（PositionAt 新鲜但位置属于旧曲）。
+        // 置位后 OnPlaybackChanged 会让 PlaybackClock 只更新 IsPlaying，不采用位置。
+        _waitingForFreshPosition = true;
+
         _cts?.Cancel();
         _cts = null;
         _suppressLineTransition = true;
@@ -153,6 +158,7 @@ public sealed partial class LyricsOrchestrator
 
         if (t == null)
         {
+            _waitingForFreshPosition = false; // 无会话，不再等待位置
             Phase = LyricsPhase.NoSession;
             UpdateTimer();
             Raise();
@@ -170,6 +176,22 @@ public sealed partial class LyricsOrchestrator
 
     private void OnPlaybackChanged(PlaybackSnapshot snapshot)
     {
+        // 切歌后到新歌词就绪前，把 PositionAt 设为一个久远时间，
+        // 让 PlaybackClock.Sync 判定"时间线不可用"（age > 30s），
+        // 从而走降级分支：只更新 IsPlaying，不采用 snapshot.Position。
+        // 这样位置保持 TrackChanged 时 Reset 后的 0，新歌词就绪时不会定位到结尾。
+        if (_waitingForFreshPosition)
+            snapshot = snapshot with { PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
+            // 若 PlaybackSnapshot 不是 record 导致 with 不可用，改为：
+            // snapshot = new PlaybackSnapshot
+            // {
+            //     Position = snapshot.Position,
+            //     PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1),
+            //     Duration = snapshot.Duration,
+            //     Rate = snapshot.Rate,
+            //     IsPlaying = snapshot.IsPlaying,
+            // };
+
         var posBefore = _clock.Estimate();
         _clock.Sync(snapshot);
         UpdateTimer();
@@ -213,6 +235,22 @@ public sealed partial class LyricsOrchestrator
             _timingFrame = LyricTimingFrame.None;
             CurrentMain = "";
             CurrentTrans = "";
+
+            // 兜底：若就绪时时钟仍残留旧曲位置且明显超出新曲时间轴末尾，重置。
+            // 正常情况下 _waitingForFreshPosition 已保证切歌后位置归零，这里是极端路径保护。
+            if (doc is { Lines.Count: > 0 })
+            {
+                var lastMs = doc.Lines[^1].TimeMs;
+                var currentMs = _clock.Estimate().TotalMilliseconds;
+                if (currentMs > lastMs + 30000)
+                {
+                    Log.Info($"clock reset after track change: pos={currentMs:F0}ms > docEnd={lastMs}ms");
+                    _clock.Reset();
+                }
+            }
+
+            _waitingForFreshPosition = false; // 文档已就绪，恢复接收位置
+
             Phase = doc != null ? LyricsPhase.Ready : LyricsPhase.NoLyric;
             Log.Info($"lyric {(doc != null ? $"ready ({doc.Lines.Count} lines, words={_hasWords})" : "not found")}: {t.Title}");
             UpdateTimer();
