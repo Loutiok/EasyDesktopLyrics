@@ -351,10 +351,14 @@ public sealed partial class LyricsOverlayWindow : Window
     private void OnLineChanged(bool suppress)
     {
         if (!_settingsService.Current.LineTransitionEnabled)
+        {
+            ClearExitOverlays();
+            SyncLastLineText();
             return;
+        }
         if (suppress || _coverAnimating || !IsVisible)
         {
-            ClearExitOverlays();   //抑制动效时清理残留覆盖层
+            ClearExitOverlays();   // 切歌/seek/封面动画期间：清理残留覆盖层，瞬切
             SyncLastLineText();
             return;
         }
@@ -362,7 +366,6 @@ public sealed partial class LyricsOverlayWindow : Window
         var durMs = Math.Clamp(_settingsService.Current.LineTransitionDurationMs, 50, 1500);
         if (DateTimeOffset.UtcNow < _lineTransitionUntil)
         {
-            // 行变化过密：直接瞬切
             CancelLineAnimation();
             ResetLineTransitionState();
             SyncLastLineText();
@@ -372,7 +375,6 @@ public sealed partial class LyricsOverlayWindow : Window
 
         try
         {
-            // 交叉淡化自带旧行退场；其余动效统一叠加旧行淡出覆盖层，避免旧行瞬灭
             if (_settingsService.Current.LineTransitionType != "Crossfade")
                 PlayExitOverlay(durMs);
             switch (_settingsService.Current.LineTransitionType)
@@ -380,7 +382,7 @@ public sealed partial class LyricsOverlayWindow : Window
                 case "Crossfade": PlayCrossfade(durMs); break;
                 case "Reveal": PlayReveal(durMs); break;
                 case "Shine": PlayShine(durMs); break;
-                default: PlayLineTransition(); break; // Fade / Slide / Scale
+                default: PlayLineTransition(); break;
             }
         }
         catch (Exception ex)
