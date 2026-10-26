@@ -4,7 +4,7 @@
              x:Class="EasyDesktopLyrics.Views.ColorPicker"
              x:DataType="views:ColorPicker">
   
-  <Button Padding="0" Background="Transparent" BorderThickness="0">
+  <Button Padding="0" Background="Transparent" BorderThickness="0" Cursor="Hand">
     <Button.Content>
       <Border Width="48" Height="32" CornerRadius="4" BorderBrush="#2BFFFFFF" BorderThickness="1"
               Background="{Binding CurrentColorBrush}" />
@@ -13,17 +13,15 @@
     <!-- 点击弹出的调色板面板 -->
     <Button.Flyout>
       <Flyout Placement="Bottom">
-        <Border Padding="12" Background="#1E1E1E">
-          <StackPanel Spacing="10" Width="260">
+        <Border Padding="12" Background="#1E1E1E" CornerRadius="8">
+          <StackPanel Spacing="10" Width="280">
             
-            <!-- 色盘区 (这里可以用你的原版渐变或原生 ColorView，为极致美观，这里放个标准渐变块示意) -->
-            <Border Height="100" CornerRadius="6" BorderBrush="#2BFFFFFF" BorderThickness="1"
-                    Background="{Binding CurrentColorBrush}">
-              <TextBlock Text="原版色谱区域 (若需还原原来的Canvas请在此处加回)" 
-                         VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#88FFFFFF" FontSize="11"/>
-            </Border>
+            <!-- 💡 核心：Avalonia 官方自带的顶级色盘、色相条、透明度条 -->
+            <ColorView Color="{Binding Color, Mode=TwoWay}" 
+                       IsAlphaVisible="True" 
+                       IsColorPaletteVisible="True" />
 
-            <!-- 数值输入区 -->
+            <!-- 咱们自定义的 RGB / HSL 滑块输入区 -->
             <TabControl Padding="0" Margin="0,4,0,0">
               <!-- RGB -->
               <TabItem Header="RGB" FontSize="12" Padding="8,4">
@@ -60,11 +58,12 @@
               </TabItem>
             </TabControl>
 
-            <!-- Hex 输入框 -->
-            <Grid ColumnDefinitions="*">
-              <TextBox Text="{Binding HexText, Mode=TwoWay}" Height="32" 
+            <!-- 底部 Hex 输入框 -->
+            <Grid ColumnDefinitions="*" Margin="0,4,0,0">
+              <TextBox Text="{Binding HexText, Mode=TwoWay}" Height="32" Watermark="Hex 颜色代码"
                        LostFocus="OnHexLostFocus" KeyDown="OnHexKeyDown" />
             </Grid>
+            
           </StackPanel>
         </Border>
       </Flyout>
