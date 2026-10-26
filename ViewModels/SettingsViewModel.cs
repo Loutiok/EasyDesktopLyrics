@@ -131,6 +131,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         nameof(SnowSizeVal), nameof(SnowSpeedVal), nameof(SnowColorValue),
         nameof(FogEnabled), nameof(FogOpacityVal), nameof(FogSoftnessVal), nameof(FogFlowVal),
         nameof(FogUseCoverEnabled), nameof(FogUseBackdropEnabled), nameof(FogBlendVal), nameof(FogAnimatedEnabled),
+        nameof(GradientTopColorValue), nameof(GradientBottomColorValue),
+        nameof(InactiveGradientTopColorValue), nameof(InactiveGradientBottomColorValue),
     ];
 
     private readonly SettingsService _settings;
