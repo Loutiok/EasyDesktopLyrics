@@ -13,14 +13,7 @@ namespace EasyDesktopLyrics.Views.Lyrics;
 /// </summary>
 internal sealed class ClassicLyricVisualMode : ILyricVisualMode
 {
-    private static readonly (double X, double Y)[] StrokeOffsets =
-    {
-        (0, -1), (0, 1), (-1, 0), (1, 0),
-        (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7),
-    };
-
     private readonly OverlayViewModel _viewModel;
-    private readonly List<TextBlock> _strokeLayers = [];
     private readonly List<Control> _glowLayers = [];
     private TextAlignment _textAlignment;
     private HorizontalAlignment _horizontalAlignment;
@@ -58,7 +51,7 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
     public Grid TranslationHost { get; }
     public LyricText ActiveLyric { get; }
     public LyricText InactiveLyric { get; }
-    public TextBlock TranslationText { get; }
+    public LyricText TranslationText { get; }
     public LyricText? ActiveGlowLyric { get; private set; }
     public LyricText? InactiveGlowLyric { get; private set; }
     public IReadOnlyList<LyricText> ActiveGlowLyrics => _activeGlowLyrics;
@@ -69,24 +62,7 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
 
     public void RefreshStroke()
     {
-        foreach (var layer in _strokeLayers)
-            TranslationHost.Children.Remove(layer);
-        _strokeLayers.Clear();
-
-        if (_viewModel.StrokeEnabled && _viewModel.StrokeThickness > 0)
-        {
-            var thickness = _viewModel.StrokeThickness;
-            foreach (var (x, y) in StrokeOffsets)
-            {
-                var layer = CreateTranslationBase();
-                layer.RenderTransform = new TranslateTransform(x * thickness, y * thickness);
-                layer.Bind(TextBlock.ForegroundProperty, new Binding("StrokeBrush"));
-                layer.Bind(TextBlock.EffectProperty, new Binding("TextEffect"));
-                TranslationHost.Children.Insert(0, layer);
-                _strokeLayers.Add(layer);
-            }
-        }
-
+        // 翻译行现在使用 LyricText，描边由控件内部直接绘制，无需额外叠加 TextBlock。
         ApplyAlignment(_textAlignment, _horizontalAlignment);
     }
 
@@ -124,9 +100,7 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
             _activeGlowLyrics.Add(core);
             ActiveGlowLyric = core;
 
-            var translationGlow = CreateTranslationBase();
-            translationGlow.Bind(TextBlock.ForegroundProperty, new Binding("Fill"));
-            translationGlow.Bind(TextBlock.EffectProperty, new Binding("GlowEffect"));
+            var translationGlow = CreateTranslationGlow();
             TranslationHost.Children.Insert(0, translationGlow);
             _glowLayers.Add(translationGlow);
         }
@@ -144,14 +118,11 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
         InactiveLyric.TextAlignment = textAlignment;
         InactiveLyric.HorizontalAlignment = horizontalAlignment;
         TranslationText.TextAlignment = textAlignment;
+        TranslationText.HorizontalAlignment = horizontalAlignment;
 
-        foreach (var layer in _strokeLayers)
-            layer.TextAlignment = textAlignment;
         foreach (var layer in _glowLayers)
         {
-            if (layer is TextBlock text)
-                text.TextAlignment = textAlignment;
-            else if (layer is LyricText lyric)
+            if (layer is LyricText lyric)
             {
                 lyric.TextAlignment = textAlignment;
                 lyric.HorizontalAlignment = horizontalAlignment;
@@ -221,23 +192,43 @@ internal sealed class ClassicLyricVisualMode : ILyricVisualMode
         _glowLayers.Add(glow);
     }
 
-    private static TextBlock CreateTranslationText()
+    private static LyricText CreateTranslationText()
     {
-        var text = CreateTranslationBase();
-        text.Bind(TextBlock.ForegroundProperty, new Binding("Fill"));
-        text.Bind(TextBlock.EffectProperty, new Binding("TextEffect"));
+        var text = new LyricText
+        {
+            HighlightLength = -1,
+            HighlightClip = LyricText.ClipSideMode.None
+        };
+        text.Bind(LyricText.TextProperty, new Binding("TransText"));
+        text.Bind(LyricText.FontFamilyProperty, new Binding("FontFamilyValue"));
+        text.Bind(LyricText.FontWeightProperty, new Binding("WeightValue"));
+        text.Bind(LyricText.FontSizeProperty, new Binding("EffectiveTransFontSize"));
+        text.Bind(LyricText.OpacityProperty, new Binding("TextOpacity"));
+        text.Bind(LyricText.IsVisibleProperty, new Binding("ShowTransLine"));
+        text.Bind(LyricText.FillProperty, new Binding("Fill"));
+        text.Bind(LyricText.StrokeEnabledProperty, new Binding("StrokeEnabled"));
+        text.Bind(LyricText.StrokeBrushProperty, new Binding("StrokeBrush"));
+        text.Bind(LyricText.StrokeThicknessProperty, new Binding("StrokeThickness"));
+        text.Bind(Visual.EffectProperty, new Binding("TextEffect"));
         return text;
     }
 
-    private static TextBlock CreateTranslationBase()
+    private static LyricText CreateTranslationGlow()
     {
-        var text = new TextBlock();
-        text.Bind(TextBlock.TextProperty, new Binding("TransText"));
-        text.Bind(TextBlock.FontFamilyProperty, new Binding("FontFamilyValue"));
-        text.Bind(TextBlock.FontWeightProperty, new Binding("WeightValue"));
-        text.Bind(TextBlock.FontSizeProperty, new Binding("EffectiveTransFontSize"));
-        text.Bind(TextBlock.OpacityProperty, new Binding("TextOpacity"));
-        text.Bind(TextBlock.IsVisibleProperty, new Binding("ShowTransLine"));
+        var text = new LyricText
+        {
+            HighlightLength = -1,
+            HighlightClip = LyricText.ClipSideMode.None,
+            IsHitTestVisible = false,
+        };
+        text.Bind(LyricText.TextProperty, new Binding("TransText"));
+        text.Bind(LyricText.FontFamilyProperty, new Binding("FontFamilyValue"));
+        text.Bind(LyricText.FontWeightProperty, new Binding("WeightValue"));
+        text.Bind(LyricText.FontSizeProperty, new Binding("EffectiveTransFontSize"));
+        text.Bind(LyricText.OpacityProperty, new Binding("TextOpacity"));
+        text.Bind(LyricText.IsVisibleProperty, new Binding("ShowTransLine"));
+        text.Bind(LyricText.FillProperty, new Binding("Fill"));
+        text.Bind(Visual.EffectProperty, new Binding("GlowEffect"));
         return text;
     }
 }
