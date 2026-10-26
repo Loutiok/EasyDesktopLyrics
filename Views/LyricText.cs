@@ -16,6 +16,13 @@ namespace EasyDesktopLyrics.Views;
 /// </summary>
 public sealed class LyricText : Control
 {
+    public LyricText()
+    {
+        // 禁用 ClearType 亚像素渲染，使用灰度抗锯齿。
+        // 彻底解决透明窗口下文字边缘出现红、蓝、黄彩色毛边的问题。
+        RenderOptions.SetTextRenderingMode(this, TextRenderingMode.Antialias);
+    }
+
     // 使用 16 向圆周采样，让描边没有任何棱角，极致圆润
     private static readonly (double dx, double dy)[] StrokeOffsets = GenerateCircularOffsets(16);
 
