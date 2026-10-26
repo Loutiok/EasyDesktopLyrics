@@ -1,13 +1,13 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Media;
 
 namespace EasyDesktopLyrics.Views;
 
 /// <summary>
-/// 自绘 HSV 颜色选取器：饱和度/明度面板 + 色相条 + 透明度条 + Hex 输入。
-/// 无第三方依赖，仅用 Avalonia 原生渐变与指针事件。
+/// 自绘 HSV 颜色选取器：饱和度/明度面板 + 色相条 + 透明度条 + Hex / RGB / HSL 输入。
 /// </summary>
 public sealed partial class ColorPicker : UserControl
 {
@@ -22,13 +22,11 @@ public sealed partial class ColorPicker : UserControl
     private double _lastHue = double.NaN;
     private Color _lastPreview = default;
 
-    // 静态渐变只建一次（不随颜色变化）；SV 面板白→hue 渐变在色相变化时重建
     private readonly LinearGradientBrush _hueBrush = BuildHueGradient();
     private readonly LinearGradientBrush _valueBrush = BuildValueGradient();
     private readonly LinearGradientBrush _shadeBrush = BuildShadeGradient();
     private LinearGradientBrush? _panelBrush;
 
-    /// <summary>颜色被修改（用户交互或外部赋值）时触发。</summary>
     public event Action<Color>? ColorChanged;
 
     public Color Color
@@ -64,38 +62,16 @@ public sealed partial class ColorPicker : UserControl
         OnColorExternallyChanged();
     }
 
-    private void OnSvPressed(object? sender, PointerPressedEventArgs e)
-    {
-        _dragging = true;
-        e.Pointer.Capture(SvPanel);
-        OnSvPointer(sender, e);
-    }
+    // ================== 拖拽指针事件 ==================
 
-    private void OnHuePressed(object? sender, PointerPressedEventArgs e)
-    {
-        _dragging = true;
-        e.Pointer.Capture(HueBar);
-        OnHuePointer(sender, e);
-    }
-
-    private void OnValuePressed(object? sender, PointerPressedEventArgs e)
-    {
-        _dragging = true;
-        e.Pointer.Capture(ValueBar);
-        OnValuePointer(sender, e);
-    }
-
-    private void OnReleased(object? sender, PointerReleasedEventArgs e)
-    {
-        _dragging = false;
-        e.Pointer.Capture(null);
-    }
+    private void OnSvPressed(object? sender, PointerPressedEventArgs e) { _dragging = true; e.Pointer.Capture(SvPanel); OnSvPointer(sender, e); }
+    private void OnHuePressed(object? sender, PointerPressedEventArgs e) { _dragging = true; e.Pointer.Capture(HueBar); OnHuePointer(sender, e); }
+    private void OnValuePressed(object? sender, PointerPressedEventArgs e) { _dragging = true; e.Pointer.Capture(ValueBar); OnValuePointer(sender, e); }
+    private void OnReleased(object? sender, PointerReleasedEventArgs e) { _dragging = false; e.Pointer.Capture(null); }
 
     private void OnSvPointer(object? sender, PointerEventArgs e)
     {
-        if (!e.GetCurrentPoint(SvPanel).Properties.IsLeftButtonPressed)
-            return;
-
+        if (!e.GetCurrentPoint(SvPanel).Properties.IsLeftButtonPressed) return;
         var p = e.GetCurrentPoint(SvPanel).Position;
         _s = Math.Clamp(p.X / Math.Max(1, SvPanel.Bounds.Width), 0, 1);
         _v = 1 - Math.Clamp(p.Y / Math.Max(1, SvPanel.Bounds.Height), 0, 1);
@@ -104,9 +80,7 @@ public sealed partial class ColorPicker : UserControl
 
     private void OnHuePointer(object? sender, PointerEventArgs e)
     {
-        if (!e.GetCurrentPoint(HueBar).Properties.IsLeftButtonPressed)
-            return;
-
+        if (!e.GetCurrentPoint(HueBar).Properties.IsLeftButtonPressed) return;
         var p = e.GetCurrentPoint(HueBar).Position;
         _h = Math.Clamp(p.X / Math.Max(1, HueBar.Bounds.Width), 0, 1) * 360;
         ApplyFromHsv();
@@ -114,13 +88,13 @@ public sealed partial class ColorPicker : UserControl
 
     private void OnValuePointer(object? sender, PointerEventArgs e)
     {
-        if (!e.GetCurrentPoint(ValueBar).Properties.IsLeftButtonPressed)
-            return;
-
+        if (!e.GetCurrentPoint(ValueBar).Properties.IsLeftButtonPressed) return;
         var p = e.GetCurrentPoint(ValueBar).Position;
         _v = Math.Clamp(p.X / Math.Max(1, ValueBar.Bounds.Width), 0, 1);
         ApplyFromHsv();
     }
+
+    // ================== 核心状态更新 ==================
 
     private void ApplyFromHsv()
     {
@@ -128,7 +102,6 @@ public sealed partial class ColorPicker : UserControl
         Color = HsvToRgb(_h, _s, _v, _a);
         _suppress = false;
 
-        // 拖动路径轻量刷新：仅重建必要内容（色相变 → SV 面板渐变；预览/Hex 带缓存与防递归）
         if (_lastHue != _h)
         {
             _lastHue = _h;
@@ -148,48 +121,26 @@ public sealed partial class ColorPicker : UserControl
             _suppress = false;
         }
         UpdateIndicators();
+        UpdateRgbHslUi(c); // 新增：同步更新 RGB/HSL
         ColorChanged?.Invoke(c);
     }
 
     private void OnColorExternallyChanged()
     {
-        if (_suppress)
-            return;
-        // 拖动中绑定回写的是本控件刚写入的值：跳过 hsv 重算，避免 RGB 量化导致手柄抖动
-        if (_dragging)
-            return;
+        if (_suppress) return;
+        if (_dragging) return;
         SyncHsvFromColor(Color);
         RefreshUi();
         ColorChanged?.Invoke(Color);
     }
 
-    /// <summary>
-    /// 由 RGB 同步 HSV 状态；灰/黑/白（无饱和度或明度）时保留当前色相——
-    /// RGB 无法还原色相，否则拖动明暗到端点会重置色相条。
-    /// </summary>
     private void SyncHsvFromColor(Color c)
     {
         var (h, s, v) = RgbToHsv(c);
-        if (s > 0.001 && v > 0.001)
-            _h = h;
+        if (s > 0.001 && v > 0.001) _h = h;
         _s = s;
         _v = v;
         _a = c.A / 255.0;
-    }
-
-    private void OnHexChanged(object? sender, TextChangedEventArgs e)
-    {
-        if (_suppress || HexBox.Text is null)
-            return;
-        if (Color.TryParse(HexBox.Text.Trim(), out var c))
-        {
-            _suppress = true;
-            Color = c;
-            _suppress = false;
-            SyncHsvFromColor(c);
-            RefreshUi();
-            ColorChanged?.Invoke(c);
-        }
     }
 
     private void RefreshUi()
@@ -205,71 +156,101 @@ public sealed partial class ColorPicker : UserControl
         PreviewBlock.Background = new SolidColorBrush(Color);
         SetHexSilently(FormatHex(Color));
         UpdateIndicators();
+        UpdateRgbHslUi(Color);
     }
 
-    /// <summary>设置 Hex 文本但不触发 OnHexChanged 递归刷新。</summary>
-    private void SetHexSilently(string hex)
+    // ================== RGB 和 HSL UI 事件与同步 ==================
+
+    private void UpdateRgbHslUi(Color c)
     {
-        if (HexBox.Text == hex)
-            return;
+        if (_suppress) return;
         _suppress = true;
-        HexBox.Text = hex;
+
+        // 同步 RGB
+        RSlider.Value = c.R; RBox.Text = c.R.ToString();
+        GSlider.Value = c.G; GBox.Text = c.G.ToString();
+        BSlider.Value = c.B; BBox.Text = c.B.ToString();
+
+        // 同步 HSL
+        var (h, s, l) = RgbToHsl(c);
+        var hr = Math.Round(h); var sr = Math.Round(s); var lr = Math.Round(l);
+        HSlider.Value = hr; HBox.Text = hr.ToString();
+        SSlider.Value = sr; SBox.Text = sr.ToString();
+        LSlider.Value = lr; LBox.Text = lr.ToString();
+
         _suppress = false;
     }
 
-    private static LinearGradientBrush BuildPanelBrush(Color hue) => new()
+    private void OnRgbSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
-        EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
-        GradientStops =
-        {
-            new GradientStop(Colors.White, 0),
-            new GradientStop(hue, 1),
-        },
-    };
+        if (_suppress) return;
+        ApplyFromRgb((byte)RSlider.Value, (byte)GSlider.Value, (byte)BSlider.Value);
+    }
 
-    /// <summary>明暗层：透明→黑（静态，不随颜色变化）。</summary>
-    private static LinearGradientBrush BuildShadeGradient() => new()
+    private void OnRgbBoxChanged(object? sender, TextChangedEventArgs e)
     {
-        StartPoint = new RelativePoint(0.5, 0, RelativeUnit.Relative),
-        EndPoint = new RelativePoint(0.5, 1, RelativeUnit.Relative),
-        GradientStops =
-        {
-            new GradientStop(Color.FromArgb(0, 0, 0, 0), 0),
-            new GradientStop(Colors.Black, 1),
-        },
-    };
+        if (_suppress) return;
+        if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
+            ApplyFromRgb(r, g, b);
+    }
 
-    /// <summary>明暗条：黑→白渐变（静态）。</summary>
-    private static LinearGradientBrush BuildValueGradient() => new()
+    private void ApplyFromRgb(byte r, byte g, byte b)
     {
-        StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
-        EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
-        GradientStops =
-        {
-            new GradientStop(Colors.Black, 0),
-            new GradientStop(Colors.White, 1),
-        },
-    };
+        _suppress = true;
+        Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
+        _suppress = false;
+        
+        SyncHsvFromColor(Color);
+        RefreshUi();
+        ColorChanged?.Invoke(Color);
+    }
 
-    private static LinearGradientBrush BuildHueGradient()
+    private void OnHslSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        static Color C(double h) => HsvToRgb(h, 1, 1, 1);
-        return new LinearGradientBrush
+        if (_suppress) return;
+        ApplyFromHsl(HSlider.Value, SSlider.Value, LSlider.Value);
+    }
+
+    private void OnHslBoxChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_suppress) return;
+        if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(LBox.Text, out var l))
+            ApplyFromHsl(h, s, l);
+    }
+
+    private void ApplyFromHsl(double h, double s, double l)
+    {
+        _suppress = true;
+        Color = HslToRgb(h, s, l, _a);
+        _suppress = false;
+        
+        SyncHsvFromColor(Color);
+        RefreshUi();
+        ColorChanged?.Invoke(Color);
+    }
+
+    // ================== Hex 与 辅助函数 ==================
+
+    private void OnHexChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (_suppress || HexBox.Text is null) return;
+        if (Color.TryParse(HexBox.Text.Trim(), out var c))
         {
-            StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
-            EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
-            GradientStops =
-            {
-                new GradientStop(C(0), 0.00),
-                new GradientStop(C(60), 0.17),
-                new GradientStop(C(120), 0.33),
-                new GradientStop(C(180), 0.50),
-                new GradientStop(C(240), 0.67),
-                new GradientStop(C(300), 0.83),
-                new GradientStop(C(360), 1.00),
-            },
-        };
+            _suppress = true;
+            Color = c;
+            _suppress = false;
+            SyncHsvFromColor(c);
+            RefreshUi();
+            ColorChanged?.Invoke(c);
+        }
+    }
+
+    private void SetHexSilently(string hex)
+    {
+        if (HexBox.Text == hex) return;
+        _suppress = true;
+        HexBox.Text = hex;
+        _suppress = false;
     }
 
     private void UpdateIndicators()
@@ -285,6 +266,8 @@ public sealed partial class ColorPicker : UserControl
     private static string FormatHex(Color c) =>
         c.A == 255 ? $"#{c.R:X2}{c.G:X2}{c.B:X2}" : $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
 
+    // ---- 色彩空间转换 ----
+
     private static Color HsvToRgb(double h, double s, double v, double a = 1.0)
     {
         var c = v * s;
@@ -297,11 +280,7 @@ public sealed partial class ColorPicker : UserControl
         else if (h < 240) { r = 0; g = x; b = c; }
         else if (h < 300) { r = x; g = 0; b = c; }
         else { r = c; g = 0; b = x; }
-        return Color.FromArgb(
-            (byte)Math.Round(a * 255),
-            (byte)Math.Round((r + m) * 255),
-            (byte)Math.Round((g + m) * 255),
-            (byte)Math.Round((b + m) * 255));
+        return Color.FromArgb((byte)Math.Round(a * 255), (byte)Math.Round((r + m) * 255), (byte)Math.Round((g + m) * 255), (byte)Math.Round((b + m) * 255));
     }
 
     private static (double H, double S, double V) RgbToHsv(Color c)
@@ -311,24 +290,98 @@ public sealed partial class ColorPicker : UserControl
         var min = Math.Min(r, Math.Min(g, b));
         var d = max - min;
         double h;
-        if (d == 0)
+        if (d == 0) h = 0;
+        else if (max == r) h = 60 * (((g - b) / d) % 6);
+        else if (max == g) h = 60 * ((b - r) / d + 2);
+        else h = 60 * ((r - g) / d + 4);
+        if (h < 0) h += 360;
+        return (h, max == 0 ? 0 : d / max, max);
+    }
+
+    private static (double H, double S, double L) RgbToHsl(Color c)
+    {
+        double r = c.R / 255.0, g = c.G / 255.0, b = c.B / 255.0;
+        double max = Math.Max(r, Math.Max(g, b));
+        double min = Math.Min(r, Math.Min(g, b));
+        double h = 0, s = 0, l = (max + min) / 2.0;
+        double d = max - min;
+
+        if (d != 0)
         {
-            h = 0;
+            s = l > 0.5 ? d / (2.0 - max - min) : d / (max + min);
+            if (max == r) h = (g - b) / d + (g < b ? 6 : 0);
+            else if (max == g) h = (b - r) / d + 2;
+            else if (max == b) h = (r - g) / d + 4;
+            h /= 6;
         }
-        else if (max == r)
-        {
-            h = 60 * (((g - b) / d) % 6);
-        }
-        else if (max == g)
-        {
-            h = 60 * ((b - r) / d + 2);
-        }
+        return (h * 360, s * 100, l * 100);
+    }
+
+    private static Color HslToRgb(double h, double s, double l, double a = 1.0)
+    {
+        h = Math.Clamp(h, 0, 360) / 360.0;
+        s = Math.Clamp(s, 0, 100) / 100.0;
+        l = Math.Clamp(l, 0, 100) / 100.0;
+        double r, g, b;
+        if (s == 0) r = g = b = l;
         else
         {
-            h = 60 * ((r - g) / d + 4);
+            double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            double p = 2 * l - q;
+            r = HueToRgb(p, q, h + 1.0 / 3.0);
+            g = HueToRgb(p, q, h);
+            b = HueToRgb(p, q, h - 1.0 / 3.0);
         }
-        if (h < 0)
-            h += 360;
-        return (h, max == 0 ? 0 : d / max, max);
+        return Color.FromArgb((byte)Math.Round(a * 255), (byte)Math.Round(r * 255), (byte)Math.Round(g * 255), (byte)Math.Round(b * 255));
+    }
+
+    private static double HueToRgb(double p, double q, double t)
+    {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1.0 / 6.0) return p + (q - p) * 6 * t;
+        if (t < 1.0 / 2.0) return q;
+        if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6;
+        return p;
+    }
+
+    // ---- 静态渐变画笔构建 ----
+
+    private static LinearGradientBrush BuildPanelBrush(Color hue) => new()
+    {
+        StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
+        EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
+        GradientStops = { new GradientStop(Colors.White, 0), new GradientStop(hue, 1) },
+    };
+
+    private static LinearGradientBrush BuildShadeGradient() => new()
+    {
+        StartPoint = new RelativePoint(0.5, 0, RelativeUnit.Relative),
+        EndPoint = new RelativePoint(0.5, 1, RelativeUnit.Relative),
+        GradientStops = { new GradientStop(Color.FromArgb(0, 0, 0, 0), 0), new GradientStop(Colors.Black, 1) },
+    };
+
+    private static LinearGradientBrush BuildValueGradient() => new()
+    {
+        StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
+        EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
+        GradientStops = { new GradientStop(Colors.Black, 0), new GradientStop(Colors.White, 1) },
+    };
+
+    private static LinearGradientBrush BuildHueGradient()
+    {
+        static Color C(double h) => HsvToRgb(h, 1, 1, 1);
+        return new LinearGradientBrush
+        {
+            StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
+            GradientStops =
+            {
+                new GradientStop(C(0), 0.00), new GradientStop(C(60), 0.17),
+                new GradientStop(C(120), 0.33), new GradientStop(C(180), 0.50),
+                new GradientStop(C(240), 0.67), new GradientStop(C(300), 0.83),
+                new GradientStop(C(360), 1.00),
+            },
+        };
     }
 }
