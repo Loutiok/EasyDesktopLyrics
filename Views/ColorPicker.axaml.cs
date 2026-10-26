@@ -1,15 +1,13 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using System;
-using System.ComponentModel;
-using System.Runtime.CompilerServices;
 
 namespace EasyDesktopLyrics.Views;
 
-public partial class ColorPicker : UserControl, INotifyPropertyChanged
+public partial class ColorPicker : UserControl
 {
-    // 依赖属性：保持与原有代码的完美兼容
     public static readonly StyledProperty<Color> ColorProperty =
         AvaloniaProperty.Register<ColorPicker, Color>(nameof(Color), Colors.White);
 
@@ -19,39 +17,7 @@ public partial class ColorPicker : UserControl, INotifyPropertyChanged
         set => SetValue(ColorProperty, value);
     }
 
-    // 内部同步锁
-    private bool _isUpdating;
-
-    public ColorPicker()
-    {
-        InitializeComponent();
-        DataContext = this;
-    }
-
-    static ColorPicker()
-    {
-        ColorProperty.Changed.AddClassHandler<ColorPicker>((x, e) => x.OnColorChanged(e));
-    }
-
-    private void OnColorChanged(AvaloniaPropertyChangedEventArgs e)
-    {
-        if (_isUpdating) return;
-        _isUpdating = true;
-
-        var c = (Color)e.NewValue!;
-        Raise(nameof(CurrentColorBrush));
-        Raise(nameof(HexText));
-        Raise(nameof(R));
-        Raise(nameof(G));
-        Raise(nameof(B));
-        Raise(nameof(H));
-        Raise(nameof(S));
-        Raise(nameof(L));
-
-        _isUpdating = false;
-    }
-
-    // ---------- 颜色显示与 Hex ----------
+    // ---------- 内部数据绑定属性 ----------
     public IBrush CurrentColorBrush => new SolidColorBrush(Color);
 
     public string HexText
@@ -59,69 +25,67 @@ public partial class ColorPicker : UserControl, INotifyPropertyChanged
         get => $"#{Color.A:X2}{Color.R:X2}{Color.G:X2}{Color.B:X2}";
         set
         {
-            if (_isUpdating) return;
-            if (Color.TryParse(value, out var newColor))
-            {
+            if (Color.TryParse(value, out var newColor) && newColor != Color)
                 Color = newColor;
-            }
         }
     }
 
-    // ---------- RGB 通道 ----------
-    public int R
+    // RGB 属性
+    public int R { get => Color.R; set => Color = Color.FromArgb(Color.A, (byte)Math.Clamp(value, 0, 255), Color.G, Color.B); }
+    public int G { get => Color.G; set => Color = Color.FromArgb(Color.A, Color.R, (byte)Math.Clamp(value, 0, 255), Color.B); }
+    public int B { get => Color.B; set => Color = Color.FromArgb(Color.A, Color.R, Color.G, (byte)Math.Clamp(value, 0, 255)); }
+
+    // HSL 属性
+    public int H { get => GetHsl().H; set => UpdateHsl(value, S, L); }
+    public int S { get => GetHsl().S; set => UpdateHsl(H, value, L); }
+    public int L { get => GetHsl().L; set => UpdateHsl(H, S, value); }
+
+    public ColorPicker()
     {
-        get => Color.R;
-        set => UpdateColorFromRgb((byte)Math.Clamp(value, 0, 255), Color.G, Color.B, Color.A);
+        InitializeComponent();
     }
 
-    public int G
+    static ColorPicker()
     {
-        get => Color.G;
-        set => UpdateColorFromRgb(Color.R, (byte)Math.Clamp(value, 0, 255), Color.B, Color.A);
+        ColorProperty.Changed.AddClassHandler<ColorPicker>((x, e) => x.OnColorChanged());
     }
 
-    public int B
+    private void OnColorChanged()
     {
-        get => Color.B;
-        set => UpdateColorFromRgb(Color.R, Color.G, (byte)Math.Clamp(value, 0, 255), Color.A);
+        // 当颜色变化时，通知所有绑定的 UI 更新
+        RaisePropertyChanged(CurrentColorBrushProperty, null, CurrentColorBrush);
+        RaisePropertyChanged(HexTextProperty, null, HexText);
+        
+        RaisePropertyChanged(RProperty, 0, R);
+        RaisePropertyChanged(GProperty, 0, G);
+        RaisePropertyChanged(BProperty, 0, B);
+        
+        var hsl = GetHsl();
+        RaisePropertyChanged(HProperty, 0, hsl.H);
+        RaisePropertyChanged(SProperty, 0, hsl.S);
+        RaisePropertyChanged(LProperty, 0, hsl.L);
     }
 
-    private void UpdateColorFromRgb(byte r, byte g, byte b, byte a)
+    // ---------- 事件处理：回车或失焦时解析 Hex ----------
+    private void OnHexLostFocus(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (_isUpdating) return;
-        _isUpdating = true;
-        Color = Color.FromArgb(a, r, g, b);
-        _isUpdating = false;
+        OnColorChanged(); // 强制刷新，如果解析失败会恢复原色
     }
 
-    // ---------- HSL 通道 ----------
-    public int H
+    private void OnHexKeyDown(object? sender, KeyEventArgs e)
     {
-        get => GetHsl().H;
-        set => UpdateColorFromHsl(value, GetHsl().S, GetHsl().L);
+        if (e.Key == Key.Enter)
+        {
+            OnColorChanged();
+            e.Handled = true;
+        }
     }
 
-    public int S
+    // ---------- HSL 与 RGB 的数学转换 ----------
+    private void UpdateHsl(int h, int s, int l)
     {
-        get => GetHsl().S;
-        set => UpdateColorFromHsl(GetHsl().H, value, GetHsl().L);
-    }
-
-    public int L
-    {
-        get => GetHsl().L;
-        set => UpdateColorFromHsl(GetHsl().H, GetHsl().S, value);
-    }
-
-    private void UpdateColorFromHsl(int h, int s, int l)
-    {
-        if (_isUpdating) return;
-        _isUpdating = true;
         Color = HslToRgb(h, s, l, Color.A);
-        _isUpdating = false;
     }
-
-    // ---------- 核心数学转换（RGB 与 HSL 互转） ----------
 
     private (int H, int S, int L) GetHsl()
     {
@@ -140,14 +104,9 @@ public partial class ColorPicker : UserControl, INotifyPropertyChanged
         if (delta != 0)
         {
             s = l > 0.5 ? delta / (2.0 - max - min) : delta / (max + min);
-
-            if (max == r)
-                h = (g - b) / delta + (g < b ? 6 : 0);
-            else if (max == g)
-                h = (b - r) / delta + 2;
-            else if (max == b)
-                h = (r - g) / delta + 4;
-
+            if (max == r) h = (g - b) / delta + (g < b ? 6 : 0);
+            else if (max == g) h = (b - r) / delta + 2;
+            else if (max == b) h = (r - g) / delta + 4;
             h /= 6;
         }
 
@@ -161,16 +120,14 @@ public partial class ColorPicker : UserControl, INotifyPropertyChanged
         l = Math.Clamp(l, 0, 100) / 100.0;
 
         double r, g, b;
-
         if (s == 0)
         {
-            r = g = b = l; // 灰色
+            r = g = b = l;
         }
         else
         {
             double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
             double p = 2 * l - q;
-
             r = HueToRgb(p, q, h + 1.0 / 3.0);
             g = HueToRgb(p, q, h);
             b = HueToRgb(p, q, h - 1.0 / 3.0);
@@ -192,11 +149,23 @@ public partial class ColorPicker : UserControl, INotifyPropertyChanged
         return p;
     }
 
-    // ---------- 属性通知 ----------
-    public event PropertyChangedEventHandler? PropertyChanged;
+    // 注册绑定依赖项，确保底层数据变更时 UI 能实时刷新
+    private static readonly DirectProperty<ColorPicker, IBrush> CurrentColorBrushProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, IBrush>(nameof(CurrentColorBrush), o => o.CurrentColorBrush);
 
-    private void Raise([CallerMemberName] string? propertyName = null)
-    {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-    }
+    private static readonly DirectProperty<ColorPicker, string> HexTextProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, string>(nameof(HexText), o => o.HexText, (o, v) => o.HexText = v);
+
+    private static readonly DirectProperty<ColorPicker, int> RProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, int>(nameof(R), o => o.R, (o, v) => o.R = v);
+    private static readonly DirectProperty<ColorPicker, int> GProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, int>(nameof(G), o => o.G, (o, v) => o.G = v);
+    private static readonly DirectProperty<ColorPicker, int> BProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, int>(nameof(B), o => o.B, (o, v) => o.B = v);
+    private static readonly DirectProperty<ColorPicker, int> HProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, int>(nameof(H), o => o.H, (o, v) => o.H = v);
+    private static readonly DirectProperty<ColorPicker, int> SProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, int>(nameof(S), o => o.S, (o, v) => o.S = v);
+    private static readonly DirectProperty<ColorPicker, int> LProperty =
+        AvaloniaProperty.RegisterDirect<ColorPicker, int>(nameof(L), o => o.L, (o, v) => o.L = v);
 }
