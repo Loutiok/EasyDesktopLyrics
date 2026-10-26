@@ -41,7 +41,7 @@ internal sealed class LuminousLyricVisualMode : ILyricVisualMode
     public Grid TranslationHost => _classic.TranslationHost;
     public LyricText ActiveLyric => _classic.ActiveLyric;
     public LyricText InactiveLyric => _classic.InactiveLyric;
-    public TextBlock TranslationText => _classic.TranslationText;
+    public LyricText TranslationText => _classic.TranslationText;
     public LyricText? ActiveGlowLyric => _classic.ActiveGlowLyric;
     public LyricText? InactiveGlowLyric => _classic.InactiveGlowLyric;
     public IReadOnlyList<LyricText> ActiveGlowLyrics => _classic.ActiveGlowLyrics;
