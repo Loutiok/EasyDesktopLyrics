@@ -133,6 +133,52 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    // 已播放渐变
+    public Color GradientTopColorValue
+    {
+        get => Color.TryParse(_settings.Current.GradientTopColorHex, out var c) ? c : Colors.White;
+        set
+        {
+            var hex = value.ToString().ToUpperInvariant();
+            if (hex == _settings.Current.GradientTopColorHex) return;
+            _settings.Update(s => s.GradientTopColorHex = hex);
+        }
+    }
+
+    public Color GradientBottomColorValue
+    {
+        get => Color.TryParse(_settings.Current.GradientBottomColorHex, out var c) ? c : Colors.White;
+        set
+        {
+            var hex = value.ToString().ToUpperInvariant();
+            if (hex == _settings.Current.GradientBottomColorHex) return;
+            _settings.Update(s => s.GradientBottomColorHex = hex);
+        }
+    }
+
+    // 未播放渐变
+    public Color InactiveGradientTopColorValue
+    {
+        get => Color.TryParse(_settings.Current.InactiveGradientTopColorHex, out var c) ? c : Colors.White;
+        set
+        {
+            var hex = value.ToString().ToUpperInvariant();
+            if (hex == _settings.Current.InactiveGradientTopColorHex) return;
+            _settings.Update(s => s.InactiveGradientTopColorHex = hex);
+        }
+    }
+
+    public Color InactiveGradientBottomColorValue
+    {
+        get => Color.TryParse(_settings.Current.InactiveGradientBottomColorHex, out var c) ? c : Colors.White;
+        set
+        {
+            var hex = value.ToString().ToUpperInvariant();
+            if (hex == _settings.Current.InactiveGradientBottomColorHex) return;
+            _settings.Update(s => s.InactiveGradientBottomColorHex = hex);
+        }
+    }
+
     // ---------- 未唱段（逐字模式未演唱部分）独立样式 ----------
 
     /// <summary>独立设置未唱颜色；关闭 = 跟随主色（主色 45% 透明）。</summary>
