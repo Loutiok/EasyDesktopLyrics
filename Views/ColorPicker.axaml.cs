@@ -184,7 +184,6 @@ public sealed partial class ColorPicker : UserControl
         if (!GBox.IsFocused) GBox.Text = c.G.ToString();
         if (!BBox.IsFocused) BBox.Text = c.B.ToString();
 
-        // HSV 模型，直接显示整数（0-360，0-100，0-100）
         var (h, s, v) = RgbToHsv(c);
         if (!HBox.IsFocused) HBox.Text = Math.Round(h, 0).ToString();
         if (!SBox.IsFocused) SBox.Text = Math.Round(s * 100, 0).ToString();
@@ -198,6 +197,9 @@ public sealed partial class ColorPicker : UserControl
         if (_suppress) return;
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
         {
+            // 防空转拦截器
+            if (Color.R == r && Color.G == g && Color.B == b) return;
+
             _suppress = true;
             Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
             _suppress = false;
@@ -213,6 +215,15 @@ public sealed partial class ColorPicker : UserControl
         if (_suppress) return;
         if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(VBox.Text, out var v))
         {
+            // 防空转拦截器：如果当前颜色的 HSV 取整后，跟输入框一模一样，说明这只是代码刷新UI触发的，直接忽略！
+            var currentHsv = RgbToHsv(Color);
+            if (Math.Round(currentHsv.H) == Math.Round(h) && 
+                Math.Round(currentHsv.S * 100) == Math.Round(s) && 
+                Math.Round(currentHsv.V * 100) == Math.Round(v))
+            {
+                return;
+            }
+
             _suppress = true;
             _h = h;
             _s = Math.Clamp(s / 100.0, 0, 1);
@@ -262,7 +273,9 @@ public sealed partial class ColorPicker : UserControl
         
         if (Color.TryParse(input, out var c))
         {
-            // 直接从 Hex 解析，防止任何 HSV 转换精度误差
+            // 防空转拦截器
+            if (Color == c) return;
+
             _suppress = true;
             Color = c;
             _suppress = false;
