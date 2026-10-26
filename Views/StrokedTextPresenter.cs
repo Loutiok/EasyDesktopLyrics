@@ -1,25 +1,43 @@
-using System;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
-using Avalonia.Media.TextFormatting;
 
 namespace EasyDesktopLyrics.Views;
 
 /// <summary>
-/// 带描边的文本展示控件。经过像素级修正，完全对齐主歌词 LyricText 渲染逻辑。
+/// 带描边的文本展示控件。内部用 Grid 叠放多个 TextBlock。
 /// </summary>
-public sealed class StrokedTextPresenter : Control
+public sealed class StrokedTextPresenter : Decorator
 {
+    private static readonly (double dx, double dy)[] StrokeOffsets =
+    {
+        (0, -1), (0, 1), (-1, 0), (1, 0),
+        (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7),
+    };
+
+    private readonly Grid _grid = new();
+    private readonly TextBlock _main = new();
+    private readonly List<TextBlock> _strokeLayers = [];
+
     public StrokedTextPresenter()
     {
-        // 强制禁用 ClearType 亚像素渲染，使用灰度抗锯齿。
-        // 彻底解决透明窗口下文字边缘出现红、蓝、黄彩色毛边以及亚像素居中对齐发糊的问题。
-        RenderOptions.SetTextRenderingMode(this, TextRenderingMode.Antialias);
+        _grid.Children.Add(_main);
+        Child = _grid;
     }
 
-    // 为偏移描边预留完全相同的空间，防止文字居中对齐时因亚像素位移与原文错位
-    private const double TextPadding = 2.0;
+    static StrokedTextPresenter()
+    {
+        TextProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x.SyncMain(); x.SyncStroke(); });
+        FillProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Foreground = x.Fill);
+        StrokeProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x.SyncStroke());
+        SEnabledProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x.RebuildStroke());
+        SThicknessProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x.RebuildStroke());
+        FontFamilyProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.FontFamily = x.FontFamily; x.SyncStroke(); });
+        FontSizeProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.FontSize = x.FontSize; x.SyncStroke(); });
+        FontWeightProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.FontWeight = x.FontWeight; x.SyncStroke(); });
+        EffectProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Effect = x.Effect);
+        OpacityProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.Opacity = x.Opacity; x.SyncStroke(); });
+    }
 
     public static readonly StyledProperty<string?> TextProperty =
         AvaloniaProperty.Register<StrokedTextPresenter, string?>(nameof(Text));
@@ -30,11 +48,11 @@ public sealed class StrokedTextPresenter : Control
     public static readonly StyledProperty<IBrush?> StrokeProperty =
         AvaloniaProperty.Register<StrokedTextPresenter, IBrush?>(nameof(Stroke), Brushes.Black);
 
-    public static readonly StyledProperty<bool> StrokeEnabledProperty =
-        AvaloniaProperty.Register<StrokedTextPresenter, bool>(nameof(StrokeEnabled));
+    public static readonly StyledProperty<bool> SEnabledProperty =
+        AvaloniaProperty.Register<StrokedTextPresenter, bool>("StrokeEnabled");
 
-    public static readonly StyledProperty<double> StrokeThicknessProperty =
-        AvaloniaProperty.Register<StrokedTextPresenter, double>(nameof(StrokeThickness), 2.0);
+    public static readonly StyledProperty<double> SThicknessProperty =
+        AvaloniaProperty.Register<StrokedTextPresenter, double>("StrokeThickness", 2.0);
 
     public static readonly StyledProperty<FontFamily> FontFamilyProperty =
         TextBlock.FontFamilyProperty.AddOwner<StrokedTextPresenter>();
@@ -54,106 +72,40 @@ public sealed class StrokedTextPresenter : Control
     public string? Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
     public IBrush? Fill { get => GetValue(FillProperty); set => SetValue(FillProperty, value); }
     public IBrush? Stroke { get => GetValue(StrokeProperty); set => SetValue(StrokeProperty, value); }
-    public bool StrokeEnabled { get => GetValue(StrokeEnabledProperty); set => SetValue(StrokeEnabledProperty, value); }
-    public double StrokeThickness { get => GetValue(StrokeThicknessProperty); set => SetValue(StrokeThicknessProperty, value); }
+    public bool StrokeEnabled { get => GetValue(SEnabledProperty); set => SetValue(SEnabledProperty, value); }
+    public double StrokeThickness { get => GetValue(SThicknessProperty); set => SetValue(SThicknessProperty, value); }
     public FontFamily FontFamily { get => GetValue(FontFamilyProperty); set => SetValue(FontFamilyProperty, value); }
     public double FontSize { get => GetValue(FontSizeProperty); set => SetValue(FontSizeProperty, value); }
     public FontWeight FontWeight { get => GetValue(FontWeightProperty); set => SetValue(FontWeightProperty, value); }
     public new IEffect? Effect { get => GetValue(EffectProperty); set => SetValue(EffectProperty, value); }
     public new double Opacity { get => GetValue(OpacityProperty); set => SetValue(OpacityProperty, value); }
 
-    private TextLayout? _bodyLayout;
-    private TextLayout? _strokeLayout;
-    private bool _layoutDirty = true;
-
-    static StrokedTextPresenter()
+    private void SyncMain() => _main.Text = Text ?? "";
+    private void SyncStroke()
     {
-        AffectsMeasure<StrokedTextPresenter>(TextProperty, FontFamilyProperty, FontSizeProperty, FontWeightProperty);
-        AffectsRender<StrokedTextPresenter>(
-            TextProperty, FillProperty, StrokeProperty, StrokeEnabledProperty, StrokeThicknessProperty,
-            FontFamilyProperty, FontSizeProperty, FontWeightProperty, OpacityProperty);
-    }
-
-    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
-    {
-        base.OnPropertyChanged(change);
-        var p = change.Property;
-        if (p == TextProperty || p == FontFamilyProperty || p == FontWeightProperty || p == FontSizeProperty
-            || p == FillProperty || p == StrokeProperty || p == StrokeThicknessProperty || p == StrokeEnabledProperty)
+        foreach (var tb in _strokeLayers)
         {
-            _layoutDirty = true;
-            // 必须调用此方法，否则属性更改（如切歌、换字体）时，界面不会立刻刷新
-            InvalidateVisual(); 
+            tb.Text = Text ?? "";
+            tb.Foreground = Stroke;
+            tb.FontFamily = FontFamily;
+            tb.FontSize = FontSize;
+            tb.FontWeight = FontWeight;
+            tb.Opacity = Opacity;
         }
     }
 
-    private void RebuildIfDirty()
+    private void RebuildStroke()
     {
-        if (!_layoutDirty && _bodyLayout != null) return;
-        _layoutDirty = false;
-        
-        if (string.IsNullOrEmpty(Text))
+        foreach (var tb in _strokeLayers) _grid.Children.Remove(tb);
+        _strokeLayers.Clear();
+        if (!StrokeEnabled || StrokeThickness <= 0) return;
+        var t = StrokeThickness;
+        foreach (var (dx, dy) in StrokeOffsets)
         {
-            _bodyLayout = null;
-            _strokeLayout = null;
-            return;
+            var tb = new TextBlock { RenderTransform = new TranslateTransform(dx * t, dy * t) };
+            _strokeLayers.Add(tb);
+            _grid.Children.Insert(0, tb);
         }
-
-        var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
-        // 强制使用和主歌词一致的固定行高逻辑，防止上下抖动
-        var lineHeight = Math.Ceiling(FontSize * 1.4 * 2) / 2; 
-        
-        _strokeLayout = StrokeEnabled && StrokeThickness > 0 && Stroke != null
-            ? new TextLayout(Text, typeface, FontSize, Stroke,
-                textAlignment: TextAlignment.Center,
-                textWrapping: TextWrapping.NoWrap,
-                lineHeight: lineHeight)
-            : null;
-
-        _bodyLayout = new TextLayout(Text, typeface, FontSize, Fill,
-            textAlignment: TextAlignment.Center,
-            textWrapping: TextWrapping.NoWrap,
-            lineHeight: lineHeight);
-    }
-
-    protected override Size MeasureOverride(Size availableSize)
-    {
-        RebuildIfDirty();
-        // 加上四周的 Padding，让翻译行的测量尺寸物理边界和原文保持绝对一致
-        return _bodyLayout != null 
-            ? new Size(_bodyLayout.Width + TextPadding * 2, _bodyLayout.Height + TextPadding * 2) 
-            : new Size();
-    }
-
-    public override void Render(DrawingContext context)
-    {
-        RebuildIfDirty();
-        if (_bodyLayout == null) return;
-
-        // 全局平移物理像素，防止描边边缘超出控件边界被裁剪，且完美对齐主歌词图层
-        using var paddingState = context.PushTransform(Matrix.CreateTranslation(TextPadding, TextPadding));
-
-        using (context.PushOpacity(Opacity))
-        {
-            if (StrokeEnabled && StrokeThickness > 0 && _strokeLayout != null)
-            {
-                // 采用和 LyricText 完全一致的 4 向锐利偏移法（物理厚度减半）
-                // 这种做法去除了对角线的重叠，边缘最锐利，且绝对不会“向内吃字”
-                var t = Math.Max(0.1, StrokeThickness * 0.5);
-                
-                var sharpOffsets = new (double dx, double dy)[] 
-                { 
-                    (0, -t), (0, t), (-t, 0), (t, 0) 
-                };
-
-                foreach (var (dx, dy) in sharpOffsets)
-                {
-                    _strokeLayout.Draw(context, new Point(dx, dy));
-                }
-            }
-
-            // 正文平涂覆盖在最上方
-            _bodyLayout.Draw(context, new Point(0, 0));
-        }
+        SyncStroke();
     }
 }
