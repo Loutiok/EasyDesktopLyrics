@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -116,7 +117,6 @@ public sealed partial class ColorPicker : UserControl
         SetHexSilently(FormatHex(c));
         UpdateIndicators();
         
-        // 拖拽时如果焦点在输入框，不要覆盖输入框内容
         if (!RBox.IsFocused && !HBox.IsFocused && !HexBox.IsFocused) 
         {
             UpdateRgbHslUi(c);
@@ -180,7 +180,6 @@ public sealed partial class ColorPicker : UserControl
         if (_suppress) return;
         _suppress = true;
 
-        // 只在没有焦点的时候覆盖内容，防止用户输入时被强行打断
         if (!RBox.IsFocused) RBox.Text = c.R.ToString();
         if (!GBox.IsFocused) GBox.Text = c.G.ToString();
         if (!BBox.IsFocused) BBox.Text = c.B.ToString();
@@ -198,16 +197,14 @@ public sealed partial class ColorPicker : UserControl
     private void OnRgbBoxChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress) return;
-        // 必须三个框都能解析，才去更新颜色，防止打字打一半报错
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
         {
             _suppress = true;
-            // 直接用 RGB 赋值，确保输入 172 就是 172，不因为色彩转换变成 174
             Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
             _suppress = false;
             
             SyncHsvFromColor(Color);
-            UpdateVisualsOnly(); // 打字时只更色盘，不动 TextBox
+            UpdateVisualsOnly();
             ColorChanged?.Invoke(Color);
         }
     }
@@ -253,24 +250,9 @@ public sealed partial class ColorPicker : UserControl
     
     private void OnBoxLostFocus(object? sender, RoutedEventArgs e)
     {
+        // 失去焦点时不强行去用 HSV 转换重新赋值，以免造成精度丢失
         if (_suppress) return;
-        
-        bool valid = false;
-        if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
-        {
-            ApplyFromRgb(r, g, b);
-            valid = true;
-        }
-        else if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(LBox.Text, out var l))
-        {
-            ApplyFromHsl(h, s, l);
-            valid = true;
-        }
-
-        if (!valid)
-        {
-            RefreshUi(); // 如果乱填，失去焦点后强行恢复正确数值
-        }
+        RefreshUi();
     }
 
     private void OnHexLostFocus(object? sender, RoutedEventArgs e)
@@ -299,27 +281,25 @@ public sealed partial class ColorPicker : UserControl
         
         var input = HexBox.Text.Trim();
         
-        // 支持 6 位或 8 位解析
         if (Color.TryParse(input, out var c))
         {
+            // 只要是直接从 Hex 解析出来的颜色，绝对不让 HSV 干涉它
             _suppress = true;
             Color = c;
             _suppress = false;
             
             SyncHsvFromColor(c);
-            UpdateRgbHslUi(c); 
             UpdateVisualsOnly();
+            UpdateRgbHslUi(c);
             
-            // 自动转换为标准大写格式，并保证光标不打断
             string standardHex = FormatHex(c);
             
-            // 如果输入/粘贴的长度已经和标准一致，且内容不同（比如有小写），则强制替换
             if (input.Length == standardHex.Length && input != standardHex)
             {
-                int caretIndex = HexBox.CaretIndex; // 记录光标位置
+                int caretIndex = HexBox.CaretIndex; 
                 _suppress = true;
-                HexBox.Text = standardHex; // 覆盖为大写
-                HexBox.CaretIndex = Math.Min(caretIndex, standardHex.Length); // 恢复光标
+                HexBox.Text = standardHex; 
+                HexBox.CaretIndex = Math.Min(caretIndex, standardHex.Length); 
                 _suppress = false;
             }
 
@@ -339,12 +319,13 @@ public sealed partial class ColorPicker : UserControl
     {
         var svw = SvPanel.Bounds.Width;
         var svh = SvPanel.Bounds.Height;
-        Canvas.SetLeft(SvIndicator, Math.Clamp(_s * svw - 4, -2, Math.Max(0, svw - 8)));
-        Canvas.SetTop(SvIndicator, Math.Clamp((1 - _v) * svh - 4, -2, Math.Max(0, svh - 8)));
-        Canvas.SetLeft(HueIndicator, _h / 360.0 * Math.Max(0, HueBar.Bounds.Width - 4));
-        Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 4));
+        Canvas.SetLeft(SvIndicator, Math.Clamp(_s * svw - 6, -2, Math.Max(0, svw - 10)));
+        Canvas.SetTop(SvIndicator, Math.Clamp((1 - _v) * svh - 6, -2, Math.Max(0, svh - 10)));
+        Canvas.SetLeft(HueIndicator, _h / 360.0 * Math.Max(0, HueBar.Bounds.Width - 6));
+        Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 6));
     }
 
+    // 保持 6 位 Hex
     private static string FormatHex(Color c) =>
         $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
