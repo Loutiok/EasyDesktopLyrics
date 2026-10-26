@@ -18,6 +18,17 @@
 
 EasyDesktopLyrics 通过 [SMTC](https://learn.microsoft.com/windows/uwp/audio-video-camera/system-media-transport-controls) 跟随 Spotify、网易云音乐、QQ 音乐、Apple Music、foobar2000 等播放器。歌词窗口可以常驻桌面，锁定后完全鼠标穿透，不影响其他窗口操作。
 
+//
+## 分支修改内容
+优化歌词描边绘制
+禁用 ClearType 亚像素渲染，使用灰度抗锯齿
+令本地歌词支持翻译行
+歌词外观新增渐变上和下，若两个颜色一致，则和原始分支大致相同
+外观侧边栏下新增软件日志级别设置，减少日志对和内存硬盘的读写占用
+优化部分内存占用
+优化切歌时的歌词状态，不再会因为歌词长度异常跳转至歌曲尾部的歌词
+//
+
 ## 界面预览
 
 ### 桌面歌词
