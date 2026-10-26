@@ -1,42 +1,35 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using System.Globalization;
 
 namespace EasyDesktopLyrics.Views;
 
 /// <summary>
-/// 带描边的文本展示控件。内部用 Grid 叠放多个 TextBlock。
+/// 带描边的文本展示控件。采用单 TextBlock 渲染正文，底层通过矢量 Geometry 和 Pen 绘制极细描边。
 /// </summary>
 public sealed class StrokedTextPresenter : Decorator
 {
-    private static readonly (double dx, double dy)[] StrokeOffsets =
-    {
-        (0, -1), (0, 1), (-1, 0), (1, 0),
-        (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7),
-    };
-
-    private readonly Grid _grid = new();
     private readonly TextBlock _main = new();
-    private readonly List<TextBlock> _strokeLayers = [];
 
     public StrokedTextPresenter()
     {
-        _grid.Children.Add(_main);
-        Child = _grid;
+        Child = _main;
     }
 
     static StrokedTextPresenter()
     {
-        TextProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x.SyncMain(); x.SyncStroke(); });
+        AffectsRender<StrokedTextPresenter>(
+            TextProperty, FillProperty, StrokeProperty, SEnabledProperty, SThicknessProperty,
+            FontFamilyProperty, FontSizeProperty, FontWeightProperty, OpacityProperty);
+
+        TextProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Text = x.Text);
         FillProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Foreground = x.Fill);
-        StrokeProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x.SyncStroke());
-        SEnabledProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x.RebuildStroke());
-        SThicknessProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x.RebuildStroke());
-        FontFamilyProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.FontFamily = x.FontFamily; x.SyncStroke(); });
-        FontSizeProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.FontSize = x.FontSize; x.SyncStroke(); });
-        FontWeightProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.FontWeight = x.FontWeight; x.SyncStroke(); });
+        FontFamilyProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.FontFamily = x.FontFamily);
+        FontSizeProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.FontSize = x.FontSize);
+        FontWeightProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.FontWeight = x.FontWeight);
         EffectProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Effect = x.Effect);
-        OpacityProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => { x._main.Opacity = x.Opacity; x.SyncStroke(); });
+        OpacityProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Opacity = x.Opacity);
     }
 
     public static readonly StyledProperty<string?> TextProperty =
@@ -80,32 +73,45 @@ public sealed class StrokedTextPresenter : Decorator
     public new IEffect? Effect { get => GetValue(EffectProperty); set => SetValue(EffectProperty, value); }
     public new double Opacity { get => GetValue(OpacityProperty); set => SetValue(OpacityProperty, value); }
 
-    private void SyncMain() => _main.Text = Text ?? "";
-    private void SyncStroke()
+    public override void Render(DrawingContext context)
     {
-        foreach (var tb in _strokeLayers)
+        // 底层先绘制矢量描边
+        if (StrokeEnabled && StrokeThickness > 0 && Stroke != null && !string.IsNullOrEmpty(Text))
         {
-            tb.Text = Text ?? "";
-            tb.Foreground = Stroke;
-            tb.FontFamily = FontFamily;
-            tb.FontSize = FontSize;
-            tb.FontWeight = FontWeight;
-            tb.Opacity = Opacity;
-        }
-    }
+            var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
+            
+            var formattedText = new FormattedText(
+                Text,
+                CultureInfo.CurrentCulture,
+                FlowDirection.LeftToRight,
+                typeface,
+                FontSize,
+                Stroke);
 
-    private void RebuildStroke()
-    {
-        foreach (var tb in _strokeLayers) _grid.Children.Remove(tb);
-        _strokeLayers.Clear();
-        if (!StrokeEnabled || StrokeThickness <= 0) return;
-        var t = StrokeThickness;
-        foreach (var (dx, dy) in StrokeOffsets)
-        {
-            var tb = new TextBlock { RenderTransform = new TranslateTransform(dx * t, dy * t) };
-            _strokeLayers.Add(tb);
-            _grid.Children.Insert(0, tb);
+            var textGeometry = formattedText.BuildGeometry(new Point(0, 0));
+            if (textGeometry != null)
+            {
+                // 计算对齐偏移（通常 TextBlock 在 Decorator 中居中或左上对齐，这里默认获取其实际 Bounds）
+                double offsetX = (Bounds.Width - formattedText.Width) / 2;
+                double offsetY = (Bounds.Height - formattedText.Height) / 2;
+
+                using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
+                using (context.PushOpacity(Opacity)) // 应用透明度，防止描边过亮
+                {
+                    // 配置画笔
+                    var strokePen = new Pen(
+                        Stroke,
+                        StrokeThickness,
+                        lineJoin: PenLineJoin.Round,
+                        lineCap: PenLineCap.Round
+                    );
+
+                    context.DrawGeometry(null, strokePen, textGeometry);
+                }
+            }
         }
-        SyncStroke();
+
+        // 让子 TextBlock 正常绘制正文覆盖在上面
+        base.Render(context);
     }
 }
