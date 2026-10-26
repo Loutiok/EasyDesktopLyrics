@@ -2,12 +2,11 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
-using System.Globalization;
 
 namespace EasyDesktopLyrics.Views;
 
 /// <summary>
-/// 带描边的文本展示控件。彻底抛弃多 TextBlock 叠加，采用 TextLayout 精准提取几何轮廓绘制极细描边。
+/// 带描边的文本展示控件。彻底抛弃多 TextBlock，采用 TextLayout 的 8 向锐利偏移法（厚度减半）。
 /// </summary>
 public sealed class StrokedTextPresenter : Control
 {
@@ -52,7 +51,8 @@ public sealed class StrokedTextPresenter : Control
     public new IEffect? Effect { get => GetValue(EffectProperty); set => SetValue(EffectProperty, value); }
     public new double Opacity { get => GetValue(OpacityProperty); set => SetValue(OpacityProperty, value); }
 
-    private TextLayout? _layout;
+    private TextLayout? _bodyLayout;
+    private TextLayout? _strokeLayout;
     private bool _layoutDirty = true;
 
     static StrokedTextPresenter()
@@ -75,12 +75,13 @@ public sealed class StrokedTextPresenter : Control
 
     private void RebuildIfDirty()
     {
-        if (!_layoutDirty && _layout != null) return;
+        if (!_layoutDirty && _bodyLayout != null) return;
         _layoutDirty = false;
         
         if (string.IsNullOrEmpty(Text))
         {
-            _layout = null;
+            _bodyLayout = null;
+            _strokeLayout = null;
             return;
         }
 
@@ -88,7 +89,12 @@ public sealed class StrokedTextPresenter : Control
         // 强制使用和主歌词一致的固定行高逻辑，防止上下抖动
         var lineHeight = Math.Ceiling(FontSize * 1.4 * 2) / 2; 
         
-        _layout = new TextLayout(Text, typeface, FontSize, Fill,
+        _strokeLayout = new TextLayout(Text, typeface, FontSize, Stroke,
+            textAlignment: TextAlignment.Center,
+            textWrapping: TextWrapping.NoWrap,
+            lineHeight: lineHeight);
+
+        _bodyLayout = new TextLayout(Text, typeface, FontSize, Fill,
             textAlignment: TextAlignment.Center,
             textWrapping: TextWrapping.NoWrap,
             lineHeight: lineHeight);
@@ -97,40 +103,36 @@ public sealed class StrokedTextPresenter : Control
     protected override Size MeasureOverride(Size availableSize)
     {
         RebuildIfDirty();
-        return _layout != null ? new Size(_layout.Width, _layout.Height) : new Size();
+        return _bodyLayout != null ? new Size(_bodyLayout.Width, _bodyLayout.Height) : new Size();
     }
 
     public override void Render(DrawingContext context)
     {
         RebuildIfDirty();
-        if (_layout == null) return;
+        if (_bodyLayout == null) return;
 
         using (context.PushOpacity(Opacity))
         {
-            if (StrokeEnabled && StrokeThickness > 0 && Stroke != null)
+            if (StrokeEnabled && StrokeThickness > 0 && _strokeLayout != null && Stroke != null)
             {
-                // 利用 FormattedText 提取完美的几何轮廓
-                var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
-                var formattedText = new FormattedText(Text ?? "", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, FontSize, Stroke);
-                
-                var geometry = formattedText.BuildGeometry(new Point(0, 0));
-                if (geometry != null)
+                // 8 向偏移法：厚度减半，边缘锐利
+                var t = Math.Max(0.1, StrokeThickness * 0.5);
+                var d = t * 0.707; // 对角线偏移
+
+                var offsets = new (double dx, double dy)[] 
+                { 
+                    (0, -t), (0, t), (-t, 0), (t, 0),
+                    (-d, -d), (d, d), (-d, d), (d, -d)
+                };
+
+                foreach (var (dx, dy) in offsets)
                 {
-                    // 对齐处理：由于 TextLayout 默认有 1.4 的行高拉伸，这里需要精准找到正文的基线并居中
-                    double offsetX = (_layout.Width - formattedText.Width) / 2;
-                    // 垂直方向使用固定行高居中修正
-                    double offsetY = (_layout.Height - formattedText.Height) / 2;
-                    
-                    using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
-                    {
-                        var pen = new Pen(Stroke, StrokeThickness, lineJoin: PenLineJoin.Round, lineCap: PenLineCap.Round);
-                        context.DrawGeometry(null, pen, geometry);
-                    }
+                    _strokeLayout.Draw(context, new Point(dx, dy));
                 }
             }
 
-            // 直接在正中间绘制正文（自带完美的渐变和抗锯齿）
-            _layout.Draw(context, new Point(0, 0));
+            // 正文覆盖在最上方
+            _bodyLayout.Draw(context, new Point(0, 0));
         }
     }
 }
