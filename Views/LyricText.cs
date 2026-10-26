@@ -369,31 +369,50 @@ public sealed class LyricText : Control
 
     /// <summary>
     /// 基于 FormattedText 获取矢量轮廓（Geometry）进行精准描边。
-    /// 完美解决了多次偏移叠加导致的发黑、极细模糊问题，并支持圆润的尖角过渡。
+    /// 包含严格的 X 轴与 Y 轴对齐补偿，完美解决错位与极细模糊问题。
     /// </summary>
     private void DrawVectorStroke(DrawingContext context, TextLayout body, double thickness)
     {
-        //未开启描边、没有文本或描边画笔为空时，不执行任何操作
         if (thickness <= 0 || string.IsNullOrEmpty(Text) || StrokeBrush == null)
             return;
-    
-        // 直接让 Avalonia 的 TextLayout (body) 自己导出它的矢量路径 Geometry
-        // 这样做出来的 Geometry 会完美继承 body 的“居中对齐”、“字重”、“换行”等所有排版属性
-        var textGeometry = body.BuildGeometry(new Point(0, 0));
+
+        var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
+        
+        // 用 FormattedText 提取真实的文字矢量轮廓
+        var formattedText = new FormattedText(
+            Text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            FontSize,
+            StrokeBrush);
+
+        var textGeometry = formattedText.BuildGeometry(new Point(0, 0));
         if (textGeometry == null)
             return;
-    
-        // 配置圆润的极细描边画笔 Pen
-        var strokePen = new Pen(
-            StrokeBrush, 
-            thickness,
-            lineJoin: PenLineJoin.Round,  // 必须是 Round，防止转角处出现刺出或者破损
-            lineCap: PenLineCap.Round     // 必须是 Round，保证笔画末端圆润
-        );
-    
-        // 渲染：由于从 body 导出的 Geometry 已经自带有居中偏移量，
-        // 这里直接绘制即可，绝对不能再叠加任何 offsetX/offsetY 偏移，否则会二次错位
-        context.DrawGeometry(null, strokePen, textGeometry);
+
+        // 补偿 X 轴 (处理居中对齐)
+        double offsetX = 0;
+        if (TextAlignment == TextAlignment.Center)
+            offsetX = (body.Width - formattedText.Width) / 2;
+        else if (TextAlignment == TextAlignment.Right)
+            offsetX = body.Width - formattedText.Width;
+
+        // 补偿 Y 轴
+        double offsetY = (body.Height - formattedText.Height) / 2;
+
+        using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
+        {
+            // 配置圆润的极细描边画笔
+            var strokePen = new Pen(
+                StrokeBrush, 
+                thickness,
+                lineJoin: PenLineJoin.Round,
+                lineCap: PenLineCap.Round
+            );
+
+            context.DrawGeometry(null, strokePen, textGeometry);
+        }
     }
 
     protected override Size MeasureOverride(Size availableSize)
