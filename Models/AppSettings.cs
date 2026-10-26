@@ -27,7 +27,7 @@ public sealed class AppSettings
     // 未播放渐变色 (带透明度，默认看起来比较暗淡)
     public string InactiveGradientTopColorHex { get; set; } = "#60FFFFFF";
     public string InactiveGradientBottomColorHex { get; set; } = "#404080D0";
-    
+
     public bool ShadowEnabled { get; set; } = true;
     public string ShadowColorHex { get; set; } = "#000000";
     public double ShadowBlurRadius { get; set; } = 8;
@@ -187,6 +187,10 @@ public sealed class AppSettings
 
     // ---- 背景动效 ----
     public BackgroundFxSettings BackgroundFx { get; set; } = new();
+
+    // ---- 系统 ----
+    /// <summary>日志级别：0=关闭，1=正常（仅记录关键事件），2=调试（记录尺寸、锚点等高频诊断信息）。</summary>
+    public int LogLevelIndex { get; set; } = 1;
 
     // ---- 兼容旧版（v0.1）----
     public bool NeteaseEnabled { get; set; } = true;
