@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -117,6 +116,7 @@ public sealed partial class ColorPicker : UserControl
         SetHexSilently(FormatHex(c));
         UpdateIndicators();
         
+        // 拖拽时如果焦点在输入框，不要覆盖输入框内容
         if (!RBox.IsFocused && !HBox.IsFocused && !HexBox.IsFocused) 
         {
             UpdateRgbHslUi(c);
@@ -159,7 +159,6 @@ public sealed partial class ColorPicker : UserControl
         UpdateRgbHslUi(Color);
     }
 
-    // 只更新可视化色盘，绝不修改任何 TextBox 的内容
     private void UpdateVisualsOnly()
     {
         var hue = HsvToRgb(_h, 1, 1, 1);
@@ -181,45 +180,36 @@ public sealed partial class ColorPicker : UserControl
         if (_suppress) return;
         _suppress = true;
 
-        RSlider.Value = c.R; RBox.Text = c.R.ToString();
-        GSlider.Value = c.G; GBox.Text = c.G.ToString();
-        BSlider.Value = c.B; BBox.Text = c.B.ToString();
+        // 只在没有焦点的时候覆盖内容，防止用户输入时被强行打断
+        if (!RBox.IsFocused) RBox.Text = c.R.ToString();
+        if (!GBox.IsFocused) GBox.Text = c.G.ToString();
+        if (!BBox.IsFocused) BBox.Text = c.B.ToString();
 
         var (h, s, l) = RgbToHsl(c);
         var hr = Math.Round(h); var sr = Math.Round(s); var lr = Math.Round(l);
         
-        HSlider.Value = hr; HBox.Text = hr.ToString();
-        SSlider.Value = sr; SBox.Text = sr.ToString();
-        LSlider.Value = lr; LBox.Text = lr.ToString();
+        if (!HBox.IsFocused) HBox.Text = hr.ToString();
+        if (!SBox.IsFocused) SBox.Text = sr.ToString();
+        if (!LBox.IsFocused) LBox.Text = lr.ToString();
 
         _suppress = false;
-    }
-
-    private void OnRgbSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
-    {
-        if (_suppress) return;
-        ApplyFromRgb((byte)RSlider.Value, (byte)GSlider.Value, (byte)BSlider.Value);
     }
 
     private void OnRgbBoxChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress) return;
+        // 必须三个框都能解析，才去更新颜色，防止打字打一半报错
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
         {
             _suppress = true;
+            // 直接用 RGB 赋值，确保输入 172 就是 172，不因为色彩转换变成 174
             Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
             _suppress = false;
             
             SyncHsvFromColor(Color);
-            UpdateVisualsOnly(); // 打字时只更新色盘
+            UpdateVisualsOnly(); // 打字时只更色盘，不动 TextBox
             ColorChanged?.Invoke(Color);
         }
-    }
-
-    private void OnHslSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
-    {
-        if (_suppress) return;
-        ApplyFromHsl(HSlider.Value, SSlider.Value, LSlider.Value);
     }
 
     private void OnHslBoxChanged(object? sender, TextChangedEventArgs e)
@@ -277,16 +267,14 @@ public sealed partial class ColorPicker : UserControl
             valid = true;
         }
 
-        // 🔥 核心修复：如果用户输入了非法的数字，失去焦点时强行恢复当前正确的 UI 状态
         if (!valid)
         {
-            RefreshUi();
+            RefreshUi(); // 如果乱填，失去焦点后强行恢复正确数值
         }
     }
 
     private void OnHexLostFocus(object? sender, RoutedEventArgs e)
     {
-        // Hex 框失去焦点时，如果输入不合法，同样强行恢复正确的 Hex
         if (!Color.TryParse(HexBox.Text?.Trim(), out _))
         {
             RefreshUi();
@@ -315,9 +303,9 @@ public sealed partial class ColorPicker : UserControl
             _suppress = false;
             SyncHsvFromColor(c);
             
-            // 🔥 核心修复：Hex 变化时，不仅要更新色盘，还要立刻联动下面的 RGB / HSL 滑块！
-            // 因为 SetHexSilently 中有焦点保护，所以这里直接调 RefreshUi 不会覆盖你正在输入的 Hex。
-            RefreshUi(); 
+            // 更新底下的 RGB/HSL 框，因为 SetHexSilently 带有焦点保护，不会打断输入
+            UpdateRgbHslUi(c); 
+            UpdateVisualsOnly();
             
             ColorChanged?.Invoke(c);
         }
@@ -325,7 +313,6 @@ public sealed partial class ColorPicker : UserControl
 
     private void SetHexSilently(string hex)
     {
-        // 焦点保护：如果你正在输入 Hex，绝不打断你
         if (HexBox.Text == hex || HexBox.IsFocused) return;
         _suppress = true;
         HexBox.Text = hex;
@@ -336,10 +323,10 @@ public sealed partial class ColorPicker : UserControl
     {
         var svw = SvPanel.Bounds.Width;
         var svh = SvPanel.Bounds.Height;
-        Canvas.SetLeft(SvIndicator, Math.Clamp(_s * svw - 6, -2, Math.Max(0, svw - 10)));
-        Canvas.SetTop(SvIndicator, Math.Clamp((1 - _v) * svh - 6, -2, Math.Max(0, svh - 10)));
-        Canvas.SetLeft(HueIndicator, _h / 360.0 * Math.Max(0, HueBar.Bounds.Width - 6));
-        Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 6));
+        Canvas.SetLeft(SvIndicator, Math.Clamp(_s * svw - 4, -2, Math.Max(0, svw - 8)));
+        Canvas.SetTop(SvIndicator, Math.Clamp((1 - _v) * svh - 4, -2, Math.Max(0, svh - 8)));
+        Canvas.SetLeft(HueIndicator, _h / 360.0 * Math.Max(0, HueBar.Bounds.Width - 4));
+        Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 4));
     }
 
     private static string FormatHex(Color c) =>
