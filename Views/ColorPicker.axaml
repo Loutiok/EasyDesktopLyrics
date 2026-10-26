@@ -1,44 +1,56 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:Class="EasyDesktopLyrics.Views.ColorPicker">
-
-  <StackPanel Spacing="6">
-    <!-- 饱和度/明度面板 -->
-    <Border x:Name="SvPanel" Height="120" CornerRadius="6" ClipToBounds="True"
-            Background="White" Cursor="Cross">
-      <Border x:Name="SvShade" Background="Transparent" CornerRadius="6">
-        <Canvas>
-          <Border x:Name="SvIndicator" Width="12" Height="12" CornerRadius="6"
-                  BorderBrush="White" BorderThickness="2" Background="Transparent"
-                  Canvas.Left="0" Canvas.Top="0" />
-        </Canvas>
-      </Border>
-    </Border>
-
-    <!-- 色相条 -->
-    <Border x:Name="HueBar" Height="14" CornerRadius="6" Cursor="Cross">
-      <Canvas>
-        <Border x:Name="HueIndicator" Width="6" Height="18" CornerRadius="2"
-                BorderBrush="White" BorderThickness="1.5" Background="Transparent"
-                Canvas.Left="0" Canvas.Top="-2" />
-      </Canvas>
-    </Border>
-
-    <!-- 明暗（V）条：黑→白渐变（代码构建，XAML 渐变在部分平台渲染为纯色） -->
-    <Border x:Name="ValueBar" Height="14" CornerRadius="6" Cursor="Cross">
-      <Canvas>
-        <Border x:Name="ValueIndicator" Width="6" Height="18" CornerRadius="2"
-                BorderBrush="White" BorderThickness="1.5" Background="Transparent"
-                Canvas.Left="0" Canvas.Top="-2" />
-      </Canvas>
-    </Border>
-
-    <!-- Hex 输入 + 预览 -->
-    <Grid ColumnDefinitions="*,44" ColumnSpacing="6">
-      <TextBox x:Name="HexBox" VerticalAlignment="Center" />
-      <Border x:Name="PreviewBlock" Grid.Column="1" Width="44" Height="24"
-              CornerRadius="6" VerticalAlignment="Center" />
+             x:Class="EasyDesktopLyrics.Views.ColorPicker"
+             MinWidth="240">
+  <StackPanel Spacing="8">
+    <!-- 顶部：预览色块 + Hex 输入 -->
+    <Grid ColumnDefinitions="60,*" ColumnSpacing="10">
+      <Border Background="{Binding CurrentColorBrush}" CornerRadius="4" BorderBrush="#2BFFFFFF" BorderThickness="1" Height="32" />
+      <TextBox Grid.Column="1" Text="{Binding HexText, Mode=TwoWay}" VerticalAlignment="Center" Height="32" Watermark="#FFFFFFFF"/>
     </Grid>
-  </StackPanel>
 
+    <TabControl Padding="0" Margin="0,4,0,0">
+      <!-- RGB 面板 -->
+      <TabItem Header="RGB" FontSize="12" Padding="12,6">
+        <StackPanel Spacing="8" Margin="0,8,0,0">
+          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
+            <TextBlock Text="R" VerticalAlignment="Center" Foreground="#FF5555" FontWeight="Bold"/>
+            <Slider Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding R, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" Text="{Binding R, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+          </Grid>
+          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
+            <TextBlock Text="G" VerticalAlignment="Center" Foreground="#55FF55" FontWeight="Bold"/>
+            <Slider Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding G, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" Text="{Binding G, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+          </Grid>
+          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
+            <TextBlock Text="B" VerticalAlignment="Center" Foreground="#5555FF" FontWeight="Bold"/>
+            <Slider Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding B, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" Text="{Binding B, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+          </Grid>
+        </StackPanel>
+      </TabItem>
+
+      <!-- HSL 面板 -->
+      <TabItem Header="HSL" FontSize="12" Padding="12,6">
+        <StackPanel Spacing="8" Margin="0,8,0,0">
+          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
+            <TextBlock Text="H" VerticalAlignment="Center" ToolTip.Tip="色调 0-360" FontWeight="Bold"/>
+            <Slider Grid.Column="1" Minimum="0" Maximum="360" Value="{Binding H, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" Text="{Binding H, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+          </Grid>
+          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
+            <TextBlock Text="S" VerticalAlignment="Center" ToolTip.Tip="饱和度 0-100%" FontWeight="Bold"/>
+            <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding S, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" Text="{Binding S, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+          </Grid>
+          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
+            <TextBlock Text="L" VerticalAlignment="Center" ToolTip.Tip="亮度 0-100%" FontWeight="Bold"/>
+            <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding L, Mode=TwoWay}" />
+            <TextBox Grid.Column="2" Text="{Binding L, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+          </Grid>
+        </StackPanel>
+      </TabItem>
+    </TabControl>
+  </StackPanel>
 </UserControl>
