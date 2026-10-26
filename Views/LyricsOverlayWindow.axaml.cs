@@ -1349,7 +1349,7 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private void OnSizeChanged(object? sender, SizeChangedEventArgs e)
     {
-        Log.Info($"trc OnSizeChanged client={e.NewSize.Width:F1}x{e.NewSize.Height:F1} old={e.PreviousSize.Width:F1}x{e.PreviousSize.Height:F1} wc={e.WidthChanged} hc={e.HeightChanged} pos={Position.X},{Position.Y} first={_firstSizeApplied} grow={_settingsService.Current.HeightGrowMode}");
+        Log.Debug($"trc OnSizeChanged client={e.NewSize.Width:F1}x{e.NewSize.Height:F1} old={e.PreviousSize.Width:F1}x{e.PreviousSize.Height:F1} wc={e.WidthChanged} hc={e.HeightChanged} pos={Position.X},{Position.Y} first={_firstSizeApplied} grow={_settingsService.Current.HeightGrowMode}");
         if (!_suppressPositionUpdate && ClientSize.Width > 0 && ClientSize.Height > 0)
         {
             var grow = _settingsService.Current.HeightGrowMode;
@@ -1397,7 +1397,7 @@ public sealed partial class LyricsOverlayWindow : Window
         _suppressPositionUpdate = true;
         Position = new PixelPoint(x, y);
         _suppressPositionUpdate = false;
-        Log.Info($"trc RepositionForSizeChange grow={grow} anchor=({_anchor.X},{_anchor.Y}) " +
+        Log.Debug($"trc RepositionForSizeChange grow={grow} anchor=({_anchor.X},{_anchor.Y}) " +
                  $"client={ClientSize.Width:F1}x{ClientSize.Height:F1} s={s:F3} pos={Position.X},{Position.Y}");
     }
 
@@ -1421,7 +1421,7 @@ public sealed partial class LyricsOverlayWindow : Window
         var expectByRender = (ClientSize.Width * renderScale, ClientSize.Height * renderScale);
         var win = Win32.GetWindowSize(_hwnd);
         var client = Win32.GetClientSize(_hwnd);
-        Log.Info($"diag: client={ClientSize.Width:F1}x{ClientSize.Height:F1} " +
+        Log.Debug($"diag: client={ClientSize.Width:F1}x{ClientSize.Height:F1} " +
                  $"screenScale={screenScale:F3} renderScale={renderScale:F3} " +
                  $"expectByScreen={expectByScreen.Item1:F0}x{expectByScreen.Item2:F0} " +
                  $"expectByRender={expectByRender.Item1:F0}x{expectByRender.Item2:F0} " +
@@ -1531,7 +1531,7 @@ public sealed partial class LyricsOverlayWindow : Window
         Position = new PixelPoint((int)(_anchor.X - pw / 2), (int)(_anchor.Y - ph / 2));
         _suppressPositionUpdate = false;
         _lastGrowBottom = Position.Y + (int)Math.Round(ClientSize.Height * s);
-        Log.Info($"trc RepositionToAnchor anchor=({_anchor.X},{_anchor.Y}) client={ClientSize.Width:F1}x{ClientSize.Height:F1} s={s:F3} pos={Position.X},{Position.Y}");
+        Log.Debug($"trc RepositionToAnchor anchor=({_anchor.X},{_anchor.Y}) client={ClientSize.Width:F1}x{ClientSize.Height:F1} s={s:F3} pos={Position.X},{Position.Y}");
     }
 
     private void WriteAnchorFromPosition()
