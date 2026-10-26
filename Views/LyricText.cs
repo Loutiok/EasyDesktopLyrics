@@ -4,7 +4,6 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Utilities;
-using System.Globalization;
 
 namespace EasyDesktopLyrics.Views;
 
@@ -12,8 +11,7 @@ namespace EasyDesktopLyrics.Views;
 /// 自绘歌词文本：非逐字时整行单色 TextLayout 平涂；
 /// 逐字（卡拉 OK）时整行一次绘制 + 线性渐变笔刷——每个字符按"已唱色 → 分界线 → 柔和过渡带 → 未唱色"
 /// 平滑渐变，分界线在当前字内部随 HighlightFraction 平滑右移（真渐变填充，非硬裁剪）。
-/// 描边 = 使用 FormattedText 的矢量几何轮廓（Geometry）进行细线渲染，极致圆润且支持极细宽度。
-/// HighlightLength = -1 时整行单色（无逐字数据）。
+/// 描边 = 4向锐利偏移，视觉厚度减半，无发糊感。
 /// </summary>
 public sealed class LyricText : Control
 {
@@ -32,6 +30,9 @@ public sealed class LyricText : Control
         Right = 2,
         Character = 3,
     }
+
+    // 为偏移描边预留一点空间，防止被父容器或控件自身边界裁剪
+    private const double TextPadding = 2.0;
 
     public static readonly StyledProperty<string?> TextProperty =
         AvaloniaProperty.Register<LyricText, string?>(nameof(Text));
@@ -113,6 +114,7 @@ public sealed class LyricText : Control
         AvaloniaProperty.Register<LyricText, TextAlignment>(nameof(TextAlignment), TextAlignment.Center);
 
     private TextLayout? _bodyLayout;
+    private TextLayout? _strokeLayout;
     private bool _layoutDirty = true;
     private double[] _charLeft = [];
     private readonly Dictionary<(int Start, int Length, byte OpacityStep), TextLayout> _glyphLayouts = [];
@@ -264,7 +266,6 @@ public sealed class LyricText : Control
         set => SetValue(TextAlignmentProperty, value);
     }
 
-    /// <summary>布局相关属性变化才重建；逐字进度/裁剪只重绘（布局为整行单色，无需重建）。</summary>
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
@@ -290,13 +291,14 @@ public sealed class LyricText : Control
         if (body == null)
             return;
 
-        // PushEffect 会按 IEffect 的输出 padding 自动膨胀离屏区域，避免 Visual.Bounds 裁切大半径光晕。
+        // 全局平移一点，防止描边超出控件边界被裁剪
+        using var paddingState = context.PushTransform(Matrix.CreateTranslation(TextPadding, TextPadding));
+
         using var effectState = RenderEffect != null
             ? (IDisposable)context.PushEffect(RenderEffect, new Rect(0, 0, body.Width, body.Height))
             : null;
         var thickness = StrokeEnabled ? StrokeThickness : 0;
 
-        // 扫光层：整行按亮带遮罩绘制（亮带位置由 ShineProgress 驱动，独立于逐字/描边分支）。
         if (ShineProgress >= 0 && ShineProgress <= 1)
         {
             var band = BuildBand(ShineProgress, body.Width);
@@ -312,17 +314,12 @@ public sealed class LyricText : Control
             return;
         }
 
-        // 指定字符层：直接绘制目标字形。不能使用 PushOpacityMask，否则 DropShadowEffect
-        // 会把遮罩的中间纹理边界当成矩形光源，产生截图中的直角方框。
         if (HighlightClip == ClipSideMode.Character)
         {
             DrawGlyphRange(context, MaskCharacterIndex, 1, RenderOpacity);
             return;
         }
 
-        // 平涂路径（无逐字数据 / 单色层）：整行单色。
-        // 无逐字数据时没有"未唱段"概念 → 未唱侧层（Right：未唱层/未唱辉光）整体不绘制，
-        // 否则未唱色/未唱辉光会作用到整行（非逐字歌词也被未唱辉光照亮）。
         if (IsFlatMode || HighlightClip == ClipSideMode.None)
         {
             if (IsFlatMode && HighlightClip == ClipSideMode.Right)
@@ -342,8 +339,6 @@ public sealed class LyricText : Control
             return;
         }
 
-        // 逐字渐变路径：整行缓存的已唱/未唱纯色布局 + PushOpacityMask 逐字渐变遮罩，
-        // 遮罩在当前字内带柔和过渡带、分界线随 HighlightFraction 平滑右移 → 字内真渐变过渡（非硬裁剪）。
         var mask = BuildMask(body, HighlightClip == ClipSideMode.Left);
         if (mask == null)
         {
@@ -353,67 +348,37 @@ public sealed class LyricText : Control
 
         using (context.PushOpacityMask(mask, new Rect(0, 0, body.Width, body.Height)))
         {
-            // 遮罩内部同样使用矢量描边，这样卡拉OK的渐变依然能完美裁剪描边
-            DrawVectorStroke(context, body, thickness);
+            DrawSharpStroke(context, thickness);
             body.Draw(context, new Point());
         }
     }
 
     private void DrawBody(DrawingContext context, TextLayout body, double thickness)
     {
-        // 使用矢量几何描边
-        DrawVectorStroke(context, body, thickness);
-        // 最后覆盖正文，保证主体颜色纯净
+        DrawSharpStroke(context, thickness);
         body.Draw(context, new Point());
     }
 
     /// <summary>
-    /// 基于 FormattedText 获取矢量轮廓（Geometry）进行精准描边。
-    /// 包含基线绝对对齐与防下沉视觉补偿。
+    /// 核心锐利描边法：使用 4 向偏移并强制物理厚度减半。
+    /// 这种方法去除了斜角的重叠，使得边缘极为锐利，且在 1.0 的厚度设置下能呈现出 0.5 的细边。
     /// </summary>
-    private void DrawVectorStroke(DrawingContext context, TextLayout body, double thickness)
+    private void DrawSharpStroke(DrawingContext context, double thickness)
     {
-        if (thickness <= 0 || string.IsNullOrEmpty(Text) || StrokeBrush == null || body.TextLines.Count == 0)
+        if (thickness <= 0 || _strokeLayout == null)
             return;
 
-        var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
+        // 强制视觉减半，并最少保留 0.1 的偏移
+        var t = Math.Max(0.1, thickness * 0.5);
         
-        var formattedText = new FormattedText(
-            Text,
-            CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight,
-            typeface,
-            FontSize,
-            StrokeBrush);
+        // 只画上下左右，保证最锐利的边缘
+        var sharpOffsets = new (double dx, double dy)[] 
+        { 
+            (0, -t), (0, t), (-t, 0), (t, 0) 
+        };
 
-        // X 轴对齐（防止 FormattedText 默认左对齐导致居中失效）
-        double offsetX = 0;
-        if (TextAlignment == TextAlignment.Center)
-            offsetX = (body.Width - formattedText.Width) / 2;
-        else if (TextAlignment == TextAlignment.Right)
-            offsetX = body.Width - formattedText.Width;
-
-        // Y 轴基线绝对对齐（借用基线相减，保证 100% 垂直重合）
-        double offsetY = body.TextLines[0].Baseline - formattedText.Baseline;
-        
-        // 视觉补偿：抵消 Pen 画笔在底部多出来的厚度，解决底部下沉问题
-        offsetY -= thickness * 0.15;
-
-        // 生成几何体
-        var textGeometry = formattedText.BuildGeometry(new Point(offsetX, offsetY));
-        if (textGeometry == null)
-            return;
-
-        // 配置高品质圆润画笔。乘以 0.9 削弱视觉厚度，防止粗体粘连
-        var strokePen = new Pen(
-            StrokeBrush,
-            Math.Max(0.1, thickness * 0.9), 
-            lineJoin: PenLineJoin.Round, 
-            lineCap: PenLineCap.Round 
-        );
-
-        // 5. 绘制描边（真正的平涂正文是由外层的 body.Draw 负责的，这样就完美包住了）
-        context.DrawGeometry(null, strokePen, textGeometry);
+        foreach (var (dx, dy) in sharpOffsets)
+            _strokeLayout.Draw(context, new Point(dx, dy));
     }
 
     protected override Size MeasureOverride(Size availableSize)
@@ -422,7 +387,9 @@ public sealed class LyricText : Control
         var body = _bodyLayout;
         if (body == null)
             return new Size();
-        return new Size(body.Width, body.Height);
+        
+        // 加上四周的 Padding，防止描边被裁切
+        return new Size(body.Width + TextPadding * 2, body.Height + TextPadding * 2);
     }
 
     private void RebuildIfDirty()
@@ -440,6 +407,7 @@ public sealed class LyricText : Control
         if (string.IsNullOrEmpty(text))
         {
             _bodyLayout = null;
+            _strokeLayout = null;
             _charLeft = [];
             return;
         }
@@ -450,11 +418,14 @@ public sealed class LyricText : Control
         var maxWidth = double.PositiveInfinity;
         var maxHeight = double.PositiveInfinity;
 
+        _strokeLayout = StrokeEnabled && StrokeThickness > 0 && StrokeBrush != null
+            ? CreateLayout(text, typeface, StrokeBrush, alignment, wrapping, maxWidth, maxHeight)
+            : null;
+
         _bodyLayout = CreateLayout(text, typeface, Fill, alignment, wrapping, maxWidth, maxHeight);
         _charLeft = BuildCharLefts(_bodyLayout, text);
     }
 
-    /// <summary>平涂模式：无逐字数据（HighlightLength &lt; 0）且未处于逐字显现进入中 → 整行单色。</summary>
     private bool IsFlatMode
     {
         get
@@ -467,10 +438,6 @@ public sealed class LyricText : Control
         }
     }
 
-    /// <summary>
-    /// 有效逐字进度：进入显现中由 EnterProgress 驱动（从左到右点亮字符），
-    /// 否则用卡拉 OK 的 HighlightLength/HighlightFraction。
-    /// </summary>
     private (int Done, double Frac) EffectiveHighlight(int len)
     {
         if (EnterProgress >= 0 && EnterProgress <= 1)
@@ -483,7 +450,6 @@ public sealed class LyricText : Control
         return (Math.Clamp(HighlightLength, 0, len), Math.Clamp(HighlightFraction, 0, 1));
     }
 
-    /// <summary>扫光带渐变（亮带遮罩，只取 alpha）：位置随 progress 0~1 从左到右，软边光带。</summary>
     private static IBrush? BuildBand(double progress, double width)
     {
         if (width <= 0)
@@ -505,7 +471,6 @@ public sealed class LyricText : Control
         return brush;
     }
 
-    /// <summary>逐字左缘 X（相对行首），末位为整行宽度；供渐变 stop 定位。</summary>
     private static double[] BuildCharLefts(TextLayout layout, string text)
     {
         var left = new double[text.Length + 1];
@@ -515,10 +480,6 @@ public sealed class LyricText : Control
         return left;
     }
 
-    /// <summary>
-    /// 逐字渐变遮罩（PushOpacityMask 用，只取 alpha）：已唱段不透明、未唱段透明、正在唱字内
-    /// 从分界线到过渡带平滑渐变。maskPlayed=true → 遮住未唱段（已唱层用）；false → 遮住已唱段（未唱层用）。
-    /// </summary>
     private IBrush? BuildMask(TextLayout layout, bool maskPlayed)
     {
         return maskPlayed
@@ -554,7 +515,6 @@ public sealed class LyricText : Control
         if (string.IsNullOrEmpty(text) || start < 0 || length <= 0 || start + length > text.Length || opacity <= 0)
             return;
 
-        // 量化到 16 档并写入字形画笔 alpha，完全避开 PushOpacity/PushOpacityMask 的离屏矩形层。
         var opacityStep = (byte)Math.Clamp(Math.Round(opacity * 16), 1, 16);
         var key = (start, length, opacityStep);
         if (!_glyphLayouts.TryGetValue(key, out var layout))
@@ -584,9 +544,6 @@ public sealed class LyricText : Control
         return x * x * (3 - 2 * x);
     }
 
-    /// <summary>逐字渐变：每个字符左边界放一个颜色 stop（已唱=played / 未唱=unplayed），
-    /// 正在唱字内放"played 实色 → 分界线 → 柔和过渡带 → unplayed"。
-    /// 渐变两端用 Absolute 点（0..width）、stop offset 用 0..1 归一化 → 与目标矩形尺寸无关，随字形精确定位。</summary>
     private LinearGradientBrush? BuildGradient(TextLayout layout, Color played, Color unplayed)
     {
         var len = _charLeft.Length - 1;
@@ -615,7 +572,6 @@ public sealed class LyricText : Control
             }
             else
             {
-                // 正在唱字：played 实色铺到分界线，再经过渡带渐变到 unplayed
                 var charW = Math.Max(x1 - x0, 0.001);
                 var boundary = x0 + charW * frac;
                 var fadeW = Math.Min(charW * 0.35, 8);
@@ -636,7 +592,6 @@ public sealed class LyricText : Control
         return brush;
     }
 
-    /// <summary>合并相邻等位置 stop（代理对/零宽字符会共用左缘）。</summary>
     private static void AddStop(List<GradientStop> stops, double offset, Color color)
     {
         if (stops.Count > 0)
