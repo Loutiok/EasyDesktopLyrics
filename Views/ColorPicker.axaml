@@ -24,7 +24,7 @@
       </Canvas>
     </Border>
 
-    <!-- 明暗（V）条：黑→白渐变（代码构建，XAML 渐变在部分平台渲染为纯色） -->
+    <!-- 明暗（V）条：黑→白渐变 -->
     <Border x:Name="ValueBar" Height="14" CornerRadius="6" Cursor="Cross">
       <Canvas>
         <Border x:Name="ValueIndicator" Width="6" Height="18" CornerRadius="2"
@@ -39,6 +39,43 @@
       <Border x:Name="PreviewBlock" Grid.Column="1" Width="44" Height="24"
               CornerRadius="6" VerticalAlignment="Center" />
     </Grid>
+
+    <!-- 新增的 RGB / HSL 控制区 -->
+    <TabControl Padding="0" Margin="0,4,0,0">
+      <!-- RGB 面板 -->
+      <TabItem Header="RGB" FontSize="12" Padding="8,4">
+        <Grid ColumnDefinitions="20,*,50" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0">
+          <TextBlock Text="R" Foreground="#FF5555" FontWeight="Bold" VerticalAlignment="Center"/>
+          <Slider Grid.Column="1" x:Name="RSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" />
+          <TextBox Grid.Column="2" x:Name="RBox" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12" TextChanged="OnRgbBoxChanged" />
+
+          <TextBlock Text="G" Grid.Row="1" Foreground="#55FF55" FontWeight="Bold" VerticalAlignment="Center"/>
+          <Slider Grid.Column="1" Grid.Row="1" x:Name="GSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" />
+          <TextBox Grid.Column="2" Grid.Row="1" x:Name="GBox" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12" TextChanged="OnRgbBoxChanged" />
+
+          <TextBlock Text="B" Grid.Row="2" Foreground="#5555FF" FontWeight="Bold" VerticalAlignment="Center"/>
+          <Slider Grid.Column="1" Grid.Row="2" x:Name="BSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" />
+          <TextBox Grid.Column="2" Grid.Row="2" x:Name="BBox" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12" TextChanged="OnRgbBoxChanged" />
+        </Grid>
+      </TabItem>
+
+      <!-- HSL 面板 -->
+      <TabItem Header="HSL" FontSize="12" Padding="8,4">
+        <Grid ColumnDefinitions="20,*,50" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0">
+          <TextBlock Text="H" VerticalAlignment="Center" FontWeight="Bold"/>
+          <Slider Grid.Column="1" x:Name="HSlider" Minimum="0" Maximum="360" ValueChanged="OnHslSliderChanged" />
+          <TextBox Grid.Column="2" x:Name="HBox" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12" TextChanged="OnHslBoxChanged" />
+
+          <TextBlock Text="S" Grid.Row="1" VerticalAlignment="Center" FontWeight="Bold"/>
+          <Slider Grid.Column="1" Grid.Row="1" x:Name="SSlider" Minimum="0" Maximum="100" ValueChanged="OnHslSliderChanged" />
+          <TextBox Grid.Column="2" Grid.Row="1" x:Name="SBox" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12" TextChanged="OnHslBoxChanged" />
+
+          <TextBlock Text="L" Grid.Row="2" VerticalAlignment="Center" FontWeight="Bold"/>
+          <Slider Grid.Column="1" Grid.Row="2" x:Name="LSlider" Minimum="0" Maximum="100" ValueChanged="OnHslSliderChanged" />
+          <TextBox Grid.Column="2" Grid.Row="2" x:Name="LBox" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12" TextChanged="OnHslBoxChanged" />
+        </Grid>
+      </TabItem>
+    </TabControl>
   </StackPanel>
 
 </UserControl>
