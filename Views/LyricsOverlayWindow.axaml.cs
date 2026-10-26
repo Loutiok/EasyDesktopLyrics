@@ -665,16 +665,23 @@ public sealed partial class LyricsOverlayWindow : Window
     }
 
     /// <summary>旧翻译行快照，样式复制自当前翻译行，并按当前对齐设定渲染。</summary>
-    private TextBlock CreateExitTranslation(string text)
+    private LyricText CreateExitTranslation(string text)
     {
-        return new TextBlock
+        return new LyricText
         {
             Text = text,
             FontFamily = _transTb.FontFamily,
+            FontWeight = _transTb.FontWeight,
             FontSize = _transTb.FontSize,
             TextAlignment = LineAlignmentValue,
-            Foreground = _transTb.Foreground,
+            HorizontalAlignment = LineHorizontalAlignment,
+            Fill = _transTb.Fill,
+            StrokeEnabled = _transTb.StrokeEnabled,
+            StrokeBrush = _transTb.StrokeBrush,
+            StrokeThickness = _transTb.StrokeThickness,
             Effect = _transTb.Effect,
+            HighlightLength = -1,
+            HighlightClip = LyricText.ClipSideMode.None,
             Opacity = 1,
         };
     }
