@@ -2,58 +2,72 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="using:EasyDesktopLyrics.Views"
              x:Class="EasyDesktopLyrics.Views.ColorPicker"
-             x:DataType="views:ColorPicker"
-             MinWidth="240">
-  <StackPanel Spacing="8">
-    <!-- 顶部：预览色块 + Hex 输入 -->
-    <Grid ColumnDefinitions="60,*" ColumnSpacing="10">
-      <Border Background="{Binding CurrentColorBrush}" CornerRadius="4" BorderBrush="#2BFFFFFF" BorderThickness="1" Height="32" />
-      <!-- 修复警告：Watermark 改为 PlaceholderText -->
-      <TextBox Grid.Column="1" Text="{Binding HexText, Mode=TwoWay}" VerticalAlignment="Center" Height="32" PlaceholderText="#FFFFFFFF"/>
-    </Grid>
+             x:DataType="views:ColorPicker">
+  
+  <Button Padding="0" Background="Transparent" BorderThickness="0">
+    <Button.Content>
+      <Border Width="48" Height="32" CornerRadius="4" BorderBrush="#2BFFFFFF" BorderThickness="1"
+              Background="{Binding CurrentColorBrush}" />
+    </Button.Content>
+    
+    <!-- 点击弹出的调色板面板 -->
+    <Button.Flyout>
+      <Flyout Placement="Bottom">
+        <Border Padding="12" Background="#1E1E1E">
+          <StackPanel Spacing="10" Width="260">
+            
+            <!-- 色盘区 (这里可以用你的原版渐变或原生 ColorView，为极致美观，这里放个标准渐变块示意) -->
+            <Border Height="100" CornerRadius="6" BorderBrush="#2BFFFFFF" BorderThickness="1"
+                    Background="{Binding CurrentColorBrush}">
+              <TextBlock Text="原版色谱区域 (若需还原原来的Canvas请在此处加回)" 
+                         VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="#88FFFFFF" FontSize="11"/>
+            </Border>
 
-    <TabControl Padding="0" Margin="0,4,0,0">
-      <!-- RGB 面板 -->
-      <TabItem Header="RGB" FontSize="12" Padding="12,6">
-        <StackPanel Spacing="8" Margin="0,8,0,0">
-          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
-            <TextBlock Text="R" VerticalAlignment="Center" Foreground="#FF5555" FontWeight="Bold"/>
-            <Slider Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding R, Mode=TwoWay}" />
-            <TextBox Grid.Column="2" Text="{Binding R, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
-          </Grid>
-          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
-            <TextBlock Text="G" VerticalAlignment="Center" Foreground="#55FF55" FontWeight="Bold"/>
-            <Slider Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding G, Mode=TwoWay}" />
-            <TextBox Grid.Column="2" Text="{Binding G, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
-          </Grid>
-          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
-            <TextBlock Text="B" VerticalAlignment="Center" Foreground="#5555FF" FontWeight="Bold"/>
-            <Slider Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding B, Mode=TwoWay}" />
-            <TextBox Grid.Column="2" Text="{Binding B, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
-          </Grid>
-        </StackPanel>
-      </TabItem>
+            <!-- 数值输入区 -->
+            <TabControl Padding="0" Margin="0,4,0,0">
+              <!-- RGB -->
+              <TabItem Header="RGB" FontSize="12" Padding="8,4">
+                <Grid ColumnDefinitions="20,*,50" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0">
+                  <TextBlock Text="R" Foreground="#FF5555" FontWeight="Bold" VerticalAlignment="Center"/>
+                  <Slider Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding R, Mode=TwoWay}" />
+                  <TextBox Grid.Column="2" Text="{Binding R, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
 
-      <!-- HSL 面板 -->
-      <TabItem Header="HSL" FontSize="12" Padding="12,6">
-        <StackPanel Spacing="8" Margin="0,8,0,0">
-          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
-            <TextBlock Text="H" VerticalAlignment="Center" ToolTip.Tip="色调 0-360" FontWeight="Bold"/>
-            <Slider Grid.Column="1" Minimum="0" Maximum="360" Value="{Binding H, Mode=TwoWay}" />
-            <TextBox Grid.Column="2" Text="{Binding H, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
-          </Grid>
-          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
-            <TextBlock Text="S" VerticalAlignment="Center" ToolTip.Tip="饱和度 0-100%" FontWeight="Bold"/>
-            <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding S, Mode=TwoWay}" />
-            <TextBox Grid.Column="2" Text="{Binding S, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
-          </Grid>
-          <Grid ColumnDefinitions="20,*,50" ColumnSpacing="10">
-            <TextBlock Text="L" VerticalAlignment="Center" ToolTip.Tip="亮度 0-100%" FontWeight="Bold"/>
-            <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="{Binding L, Mode=TwoWay}" />
-            <TextBox Grid.Column="2" Text="{Binding L, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
-          </Grid>
-        </StackPanel>
-      </TabItem>
-    </TabControl>
-  </StackPanel>
+                  <TextBlock Text="G" Grid.Row="1" Foreground="#55FF55" FontWeight="Bold" VerticalAlignment="Center"/>
+                  <Slider Grid.Column="1" Grid.Row="1" Minimum="0" Maximum="255" Value="{Binding G, Mode=TwoWay}" />
+                  <TextBox Grid.Column="2" Grid.Row="1" Text="{Binding G, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+
+                  <TextBlock Text="B" Grid.Row="2" Foreground="#5555FF" FontWeight="Bold" VerticalAlignment="Center"/>
+                  <Slider Grid.Column="1" Grid.Row="2" Minimum="0" Maximum="255" Value="{Binding B, Mode=TwoWay}" />
+                  <TextBox Grid.Column="2" Grid.Row="2" Text="{Binding B, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+                </Grid>
+              </TabItem>
+
+              <!-- HSL -->
+              <TabItem Header="HSL" FontSize="12" Padding="8,4">
+                <Grid ColumnDefinitions="20,*,50" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0">
+                  <TextBlock Text="H" VerticalAlignment="Center" FontWeight="Bold"/>
+                  <Slider Grid.Column="1" Minimum="0" Maximum="360" Value="{Binding H, Mode=TwoWay}" />
+                  <TextBox Grid.Column="2" Text="{Binding H, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+
+                  <TextBlock Text="S" Grid.Row="1" VerticalAlignment="Center" FontWeight="Bold"/>
+                  <Slider Grid.Column="1" Grid.Row="1" Minimum="0" Maximum="100" Value="{Binding S, Mode=TwoWay}" />
+                  <TextBox Grid.Column="2" Grid.Row="1" Text="{Binding S, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+
+                  <TextBlock Text="L" Grid.Row="2" VerticalAlignment="Center" FontWeight="Bold"/>
+                  <Slider Grid.Column="1" Grid.Row="2" Minimum="0" Maximum="100" Value="{Binding L, Mode=TwoWay}" />
+                  <TextBox Grid.Column="2" Grid.Row="2" Text="{Binding L, Mode=TwoWay}" Height="26" MinHeight="26" Padding="4,2" TextAlignment="Right" FontSize="12"/>
+                </Grid>
+              </TabItem>
+            </TabControl>
+
+            <!-- Hex 输入框 -->
+            <Grid ColumnDefinitions="*">
+              <TextBox Text="{Binding HexText, Mode=TwoWay}" Height="32" 
+                       LostFocus="OnHexLostFocus" KeyDown="OnHexKeyDown" />
+            </Grid>
+          </StackPanel>
+        </Border>
+      </Flyout>
+    </Button.Flyout>
+  </Button>
 </UserControl>
