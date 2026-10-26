@@ -369,12 +369,26 @@ public sealed class LyricText : Control
         {
             if (thickness > 0 && _strokeLayout != null)
             {
-                // 强制最小宽度为 1.0。防止用户设置极小值（如 0.1）导致 16 次绘制全挤在同一像素上，产生死灰糊边。
-                var safeThickness = Math.Max(thickness, 1.0);
-                foreach (var (dx, dy) in StrokeOffsets)
-                    _strokeLayout.Draw(context, new Point(dx * safeThickness, dy * safeThickness));
+                // 如果用户设置了小于 1.0 的极细描边（如 0.5），为了防止 16 次绘制严重重叠发黑，
+                // 我们改用 8 向采样，并保持抗锯齿的平滑度。
+                if (thickness < 1.0)
+                {
+                    var d = thickness * 0.707;
+                    var thinOffsets = new (double dx, double dy)[]
+                    {
+                        (0, -thickness), (0, thickness), (-thickness, 0), (thickness, 0),
+                        (-d, -d), (d, d), (-d, d), (d, -d)
+                    };
+                    foreach (var (dx, dy) in thinOffsets)
+                        _strokeLayout.Draw(context, new Point(dx, dy));
+                }
+                else
+                {
+                    // 大于等于 1.0 时，使用 16 向圆环采样，极致圆润
+                    foreach (var (dx, dy) in StrokeOffsets)
+                        _strokeLayout.Draw(context, new Point(dx * thickness, dy * thickness));
+                }
             }
-            body.Draw(context, new Point());
         }
     }
 
@@ -382,10 +396,25 @@ public sealed class LyricText : Control
     {
         if (thickness > 0 && _strokeLayout != null)
         {
-            // 强制最小宽度为 1.0
-            var safeThickness = Math.Max(thickness, 1.0);
-            foreach (var (dx, dy) in StrokeOffsets)
-                _strokeLayout.Draw(context, new Point(dx * safeThickness, dy * safeThickness));
+            // 如果用户设置了小于 1.0 的极细描边（如 0.5），为了防止 16 次绘制严重重叠发黑，
+            // 我们改用 8 向采样，并保持抗锯齿的平滑度。
+            if (thickness < 1.0)
+            {
+                var d = thickness * 0.707;
+                var thinOffsets = new (double dx, double dy)[]
+                {
+                    (0, -thickness), (0, thickness), (-thickness, 0), (thickness, 0),
+                    (-d, -d), (d, d), (-d, d), (d, -d)
+                };
+                foreach (var (dx, dy) in thinOffsets)
+                    _strokeLayout.Draw(context, new Point(dx, dy));
+            }
+            else
+            {
+                // 大于等于 1.0 时，使用 16 向圆环采样，极致圆润
+                foreach (var (dx, dy) in StrokeOffsets)
+                    _strokeLayout.Draw(context, new Point(dx * thickness, dy * thickness));
+            }
         }
 
         body.Draw(context, new Point());
