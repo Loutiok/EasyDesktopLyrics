@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="EasyDesktopLyrics.Views.ColorPicker"
-             MinWidth="280">
+             MinWidth="320">
 
   <StackPanel Spacing="8">
     <!-- 饱和度/明度面板 -->
@@ -44,34 +44,35 @@
     <!-- RGB / HSL 切换面板 -->
     <TabControl Padding="0" Margin="0,4,0,0">
       <TabItem Header="RGB" FontSize="12" Padding="12,6">
-        <Grid ColumnDefinitions="20,*,60" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0" ColumnSpacing="8">
+        <!-- 列宽改成 20(标签), *(滑块自适应), 50(输入框) -->
+        <Grid ColumnDefinitions="20,*,50" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0" ColumnSpacing="8">
           <TextBlock Text="R" Foreground="#FF5555" FontWeight="Bold" VerticalAlignment="Center"/>
           <Slider Grid.Column="1" x:Name="RSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" />
-          <TextBox Grid.Column="2" x:Name="RBox" Height="28" MinHeight="28" Padding="4,0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox Grid.Column="2" x:Name="RBox" Height="28" MinHeight="28" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
 
           <TextBlock Text="G" Grid.Row="1" Foreground="#55FF55" FontWeight="Bold" VerticalAlignment="Center"/>
           <Slider Grid.Column="1" Grid.Row="1" x:Name="GSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" />
-          <TextBox Grid.Column="2" Grid.Row="1" x:Name="GBox" Height="28" MinHeight="28" Padding="4,0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox Grid.Column="2" Grid.Row="1" x:Name="GBox" Height="28" MinHeight="28" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
 
           <TextBlock Text="B" Grid.Row="2" Foreground="#5555FF" FontWeight="Bold" VerticalAlignment="Center"/>
           <Slider Grid.Column="1" Grid.Row="2" x:Name="BSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" />
-          <TextBox Grid.Column="2" Grid.Row="2" x:Name="BBox" Height="28" MinHeight="28" Padding="4,0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox Grid.Column="2" Grid.Row="2" x:Name="BBox" Height="28" MinHeight="28" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
         </Grid>
       </TabItem>
 
       <TabItem Header="HSL" FontSize="12" Padding="12,6">
-        <Grid ColumnDefinitions="20,*,60" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0" ColumnSpacing="8">
+        <Grid ColumnDefinitions="20,*,50" RowDefinitions="Auto,Auto,Auto" RowSpacing="8" Margin="0,8,0,0" ColumnSpacing="8">
           <TextBlock Text="H" VerticalAlignment="Center" FontWeight="Bold"/>
           <Slider Grid.Column="1" x:Name="HSlider" Minimum="0" Maximum="360" ValueChanged="OnHslSliderChanged" />
-          <TextBox Grid.Column="2" x:Name="HBox" Height="28" MinHeight="28" Padding="4,0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox Grid.Column="2" x:Name="HBox" Height="28" MinHeight="28" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
 
           <TextBlock Text="S" Grid.Row="1" VerticalAlignment="Center" FontWeight="Bold"/>
           <Slider Grid.Column="1" Grid.Row="1" x:Name="SSlider" Minimum="0" Maximum="100" ValueChanged="OnHslSliderChanged" />
-          <TextBox Grid.Column="2" Grid.Row="1" x:Name="SBox" Height="28" MinHeight="28" Padding="4,0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox Grid.Column="2" Grid.Row="1" x:Name="SBox" Height="28" MinHeight="28" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
 
           <TextBlock Text="L" Grid.Row="2" VerticalAlignment="Center" FontWeight="Bold"/>
           <Slider Grid.Column="1" Grid.Row="2" x:Name="LSlider" Minimum="0" Maximum="100" ValueChanged="OnHslSliderChanged" />
-          <TextBox Grid.Column="2" Grid.Row="2" x:Name="LBox" Height="28" MinHeight="28" Padding="4,0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox Grid.Column="2" Grid.Row="2" x:Name="LBox" Height="28" MinHeight="28" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="13" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
         </Grid>
       </TabItem>
     </TabControl>
