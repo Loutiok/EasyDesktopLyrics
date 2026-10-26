@@ -369,7 +369,7 @@ public sealed class LyricText : Control
 
     /// <summary>
     /// 基于 FormattedText 获取矢量轮廓（Geometry）进行精准描边。
-    /// 包含严格的 X 轴与 Y 轴对齐补偿，完美解决错位与极细模糊问题。
+    /// 使用基线（Baseline）进行绝对对齐，彻底解决描边偏移与加粗后的阴影感。
     /// </summary>
     private void DrawVectorStroke(DrawingContext context, TextLayout body, double thickness)
     {
@@ -378,7 +378,6 @@ public sealed class LyricText : Control
 
         var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
         
-        // 用 FormattedText 提取真实的文字矢量轮廓
         var formattedText = new FormattedText(
             Text,
             CultureInfo.CurrentCulture,
@@ -391,23 +390,26 @@ public sealed class LyricText : Control
         if (textGeometry == null)
             return;
 
-        // 补偿 X 轴 (处理居中对齐)
+        // X 轴对齐补偿
         double offsetX = 0;
         if (TextAlignment == TextAlignment.Center)
             offsetX = (body.Width - formattedText.Width) / 2;
         else if (TextAlignment == TextAlignment.Right)
             offsetX = body.Width - formattedText.Width;
 
-        // 补偿 Y 轴
-        double offsetY = (body.Height - formattedText.Height) / 2;
+        // Y 轴绝对对齐
+        double offsetY = 0;
+        if (body.TextLines.Count > 0)
+        {
+            offsetY = body.TextLines[0].Baseline - formattedText.Baseline;
+        }
 
         using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
         {
             // 配置圆润的极细描边画笔
             var strokePen = new Pen(
                 StrokeBrush, 
-                // 视觉补偿：因为抗锯齿会向外扩散约 0.5px 的虚边，我们稍微缩小实际物理厚度，让视觉厚度更精准
-                Math.Max(0.1, thickness * 0.85), 
+                thickness,
                 lineJoin: PenLineJoin.Round,
                 lineCap: PenLineCap.Round
             );
