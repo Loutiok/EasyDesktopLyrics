@@ -6,9 +6,6 @@ using Avalonia.Media;
 
 namespace EasyDesktopLyrics.Views;
 
-/// <summary>
-/// 自绘 HSV 颜色选取器：饱和度/明度面板 + 色相条 + 透明度条 + Hex / RGB / HSL 输入。
-/// </summary>
 public sealed partial class ColorPicker : UserControl
 {
     public static readonly StyledProperty<Color> ColorProperty =
@@ -25,7 +22,6 @@ public sealed partial class ColorPicker : UserControl
     private readonly LinearGradientBrush _hueBrush = BuildHueGradient();
     private readonly LinearGradientBrush _valueBrush = BuildValueGradient();
     private readonly LinearGradientBrush _shadeBrush = BuildShadeGradient();
-    private LinearGradientBrush? _panelBrush;
 
     public event Action<Color>? ColorChanged;
 
@@ -107,28 +103,29 @@ public sealed partial class ColorPicker : UserControl
             _lastHue = _h;
             SvPanel.Background = BuildPanelBrush(HsvToRgb(_h, 1, 1, 1));
         }
+        
         var c = Color;
         if (_lastPreview != c)
         {
             _lastPreview = c;
             PreviewBlock.Background = new SolidColorBrush(c);
         }
-        var hex = FormatHex(c);
-        if (HexBox.Text != hex)
-        {
-            _suppress = true;
-            HexBox.Text = hex;
-            _suppress = false;
-        }
+        
+        SetHexSilently(FormatHex(c));
         UpdateIndicators();
-        UpdateRgbHslUi(c); // 新增：同步更新 RGB/HSL
+        
+        // 如果用户此刻没有在打字，才去同步滑块和输入框
+        if (!RBox.IsFocused && !HBox.IsFocused && !HexBox.IsFocused) 
+        {
+            UpdateRgbHslUi(c);
+        }
+        
         ColorChanged?.Invoke(c);
     }
 
     private void OnColorExternallyChanged()
     {
-        if (_suppress) return;
-        if (_dragging) return;
+        if (_suppress || _dragging) return;
         SyncHsvFromColor(Color);
         RefreshUi();
         ColorChanged?.Invoke(Color);
@@ -154,6 +151,7 @@ public sealed partial class ColorPicker : UserControl
         HueBar.Background = _hueBrush;
         ValueBar.Background = _valueBrush;
         PreviewBlock.Background = new SolidColorBrush(Color);
+        
         SetHexSilently(FormatHex(Color));
         UpdateIndicators();
         UpdateRgbHslUi(Color);
@@ -166,17 +164,27 @@ public sealed partial class ColorPicker : UserControl
         if (_suppress) return;
         _suppress = true;
 
-        // 同步 RGB
-        RSlider.Value = c.R; RBox.Text = c.R.ToString();
-        GSlider.Value = c.G; GBox.Text = c.G.ToString();
-        BSlider.Value = c.B; BBox.Text = c.B.ToString();
+        // 只有当前未获得焦点的输入框才会被强行更新，防止打断你的输入！
+        if (!RSlider.IsFocused) RSlider.Value = c.R; 
+        if (!RBox.IsFocused) RBox.Text = c.R.ToString();
 
-        // 同步 HSL
+        if (!GSlider.IsFocused) GSlider.Value = c.G;
+        if (!GBox.IsFocused) GBox.Text = c.G.ToString();
+
+        if (!BSlider.IsFocused) BSlider.Value = c.B;
+        if (!BBox.IsFocused) BBox.Text = c.B.ToString();
+
         var (h, s, l) = RgbToHsl(c);
         var hr = Math.Round(h); var sr = Math.Round(s); var lr = Math.Round(l);
-        HSlider.Value = hr; HBox.Text = hr.ToString();
-        SSlider.Value = sr; SBox.Text = sr.ToString();
-        LSlider.Value = lr; LBox.Text = lr.ToString();
+        
+        if (!HSlider.IsFocused) HSlider.Value = hr; 
+        if (!HBox.IsFocused) HBox.Text = hr.ToString();
+
+        if (!SSlider.IsFocused) SSlider.Value = sr; 
+        if (!SBox.IsFocused) SBox.Text = sr.ToString();
+
+        if (!LSlider.IsFocused) LSlider.Value = lr; 
+        if (!LBox.IsFocused) LBox.Text = lr.ToString();
 
         _suppress = false;
     }
@@ -190,6 +198,7 @@ public sealed partial class ColorPicker : UserControl
     private void OnRgbBoxChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress) return;
+        // 只有在三个框都合法时才应用
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
             ApplyFromRgb(r, g, b);
     }
@@ -234,6 +243,7 @@ public sealed partial class ColorPicker : UserControl
     private void OnHexChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress || HexBox.Text is null) return;
+        // 6 位 Hex 会自动被 Avalonia 补全为 FF alpha，8 位 Hex 会直接解析
         if (Color.TryParse(HexBox.Text.Trim(), out var c))
         {
             _suppress = true;
@@ -247,7 +257,7 @@ public sealed partial class ColorPicker : UserControl
 
     private void SetHexSilently(string hex)
     {
-        if (HexBox.Text == hex) return;
+        if (HexBox.Text == hex || HexBox.IsFocused) return;
         _suppress = true;
         HexBox.Text = hex;
         _suppress = false;
@@ -263,8 +273,9 @@ public sealed partial class ColorPicker : UserControl
         Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 6));
     }
 
+    // ⭐️ 关键修改：强制输出 8 位带透明度的 Hex
     private static string FormatHex(Color c) =>
-        c.A == 255 ? $"#{c.R:X2}{c.G:X2}{c.B:X2}" : $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
+        $"#{c.A:X2}{c.R:X2}{c.G:X2}{c.B:X2}";
 
     // ---- 色彩空间转换 ----
 
