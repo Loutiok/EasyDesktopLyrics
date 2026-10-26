@@ -344,10 +344,13 @@ public sealed class OverlayViewModel : ObservableObject
     {
         get
         {
-            if (_fillHexCache != S.ColorHex)
+            var topHex = S.GradientTopColorHex;
+            var bottomHex = S.GradientBottomColorHex;
+            var key = $"{topHex}|{bottomHex}";
+            if (_fillHexCache != key)
             {
-                _fillHexCache = S.ColorHex;
-                _fillCache = Color.TryParse(S.ColorHex, out var c) ? new SolidColorBrush(c) : Brushes.White;
+                _fillHexCache = key;
+                _fillCache = BuildGradient(topHex, bottomHex);
             }
             return _fillCache;
         }
@@ -358,20 +361,44 @@ public sealed class OverlayViewModel : ObservableObject
     {
         get
         {
-            var key = $"{(S.InactiveColorHex.Length > 0 ? "I|" + S.InactiveColorHex : "F|" + S.ColorHex)}|{S.InactiveOpacity}";
+            var pct = Math.Clamp(S.InactiveOpacity, 0.05, 1.0);
+            var key = $"{S.InactiveGradientTopColorHex}|{S.InactiveGradientBottomColorHex}|{pct}";
             if (_inactiveHexCache != key)
             {
                 _inactiveHexCache = key;
-                var c = Color.TryParse(S.InactiveColorHex, out var ic)
-                    ? ic
-                    : Color.TryParse(S.ColorHex, out var mc) ? mc : Colors.White;
-                var pct = Math.Clamp(S.InactiveOpacity, 0.05, 1.0);
-                _inactiveFillCache = new SolidColorBrush(Color.FromArgb(
-                    (byte)Math.Round(c.A * pct), c.R, c.G, c.B));
+                var top = Color.TryParse(S.InactiveGradientTopColorHex, out var c1) ? c1 : Colors.White;
+                var bottom = Color.TryParse(S.InactiveGradientBottomColorHex, out var c2) ? c2 : Colors.White;
+                // 未唱段统一乘上透明度
+                _inactiveFillCache = BuildGradient(ApplyOpacity(top, pct), ApplyOpacity(bottom, pct));
             }
             return _inactiveFillCache;
         }
     }
+
+    private static IBrush BuildGradient(string topHex, string bottomHex)
+    {
+        var top = Color.TryParse(topHex, out var t) ? t : Colors.White;
+        var bottom = Color.TryParse(bottomHex, out var b) ? b : Colors.White;
+        return BuildGradient(top, bottom);
+    }
+    
+    private static IBrush BuildGradient(Color top, Color bottom)
+    {
+        return new LinearGradientBrush
+        {
+            // (0.5, 0) 到 (0.5, 1) 表示从上到下的垂直渐变
+            StartPoint = new RelativePoint(0.5, 0, RelativeUnit.Relative),
+            EndPoint = new RelativePoint(0.5, 1, RelativeUnit.Relative),
+            GradientStops =
+            {
+                new GradientStop(top, 0),
+                new GradientStop(bottom, 1)
+            }
+        };
+    }
+    
+    private static Color ApplyOpacity(Color c, double pct) =>
+        Color.FromArgb((byte)Math.Round(c.A * pct), c.R, c.G, c.B);
 
     /// <summary>已唱层未唱段填充：完全透明（只让已唱段字形上色，未唱段由下层负责）。</summary>
     public IBrush ActiveLayerInactiveFill => TransparentBrush;
