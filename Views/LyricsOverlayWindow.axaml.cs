@@ -59,7 +59,7 @@ public sealed partial class LyricsOverlayWindow : Window
     private LyricText _inactiveLyric => _lyricVisualMode.InactiveLyric;
     private LyricText _mainLyric => _lyricVisualMode.ActiveLyric;
     private Grid _transGrid => _lyricVisualMode.TranslationHost;
-    private TextBlock _transTb => _lyricVisualMode.TranslationText;
+    private LyricText _transTb => _lyricVisualMode.TranslationText;
     private IReadOnlyList<LyricText> _mainGlowLyrics => _lyricVisualMode.ActiveGlowLyrics;
     private IReadOnlyList<LyricText> _inactiveGlowLyrics => _lyricVisualMode.InactiveGlowLyrics;
 
