@@ -1,37 +1,16 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Avalonia.Media.TextFormatting;
 using System.Globalization;
 
 namespace EasyDesktopLyrics.Views;
 
 /// <summary>
-/// 带描边的文本展示控件。采用单 TextBlock 渲染正文，底层通过矢量 Geometry 和 Pen 绘制极细描边。
+/// 带描边的文本展示控件。彻底抛弃多 TextBlock 叠加，采用 TextLayout 精准提取几何轮廓绘制极细描边。
 /// </summary>
-public sealed class StrokedTextPresenter : Decorator
+public sealed class StrokedTextPresenter : Control
 {
-    private readonly TextBlock _main = new();
-
-    public StrokedTextPresenter()
-    {
-        Child = _main;
-    }
-
-    static StrokedTextPresenter()
-    {
-        AffectsRender<StrokedTextPresenter>(
-            TextProperty, FillProperty, StrokeProperty, SEnabledProperty, SThicknessProperty,
-            FontFamilyProperty, FontSizeProperty, FontWeightProperty, OpacityProperty);
-
-        TextProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Text = x.Text);
-        FillProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Foreground = x.Fill);
-        FontFamilyProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.FontFamily = x.FontFamily);
-        FontSizeProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.FontSize = x.FontSize);
-        FontWeightProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.FontWeight = x.FontWeight);
-        EffectProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Effect = x.Effect);
-        OpacityProperty.Changed.AddClassHandler<StrokedTextPresenter>((x, _) => x._main.Opacity = x.Opacity);
-    }
-
     public static readonly StyledProperty<string?> TextProperty =
         AvaloniaProperty.Register<StrokedTextPresenter, string?>(nameof(Text));
 
@@ -41,11 +20,11 @@ public sealed class StrokedTextPresenter : Decorator
     public static readonly StyledProperty<IBrush?> StrokeProperty =
         AvaloniaProperty.Register<StrokedTextPresenter, IBrush?>(nameof(Stroke), Brushes.Black);
 
-    public static readonly StyledProperty<bool> SEnabledProperty =
-        AvaloniaProperty.Register<StrokedTextPresenter, bool>("StrokeEnabled");
+    public static readonly StyledProperty<bool> StrokeEnabledProperty =
+        AvaloniaProperty.Register<StrokedTextPresenter, bool>(nameof(StrokeEnabled));
 
-    public static readonly StyledProperty<double> SThicknessProperty =
-        AvaloniaProperty.Register<StrokedTextPresenter, double>("StrokeThickness", 2.0);
+    public static readonly StyledProperty<double> StrokeThicknessProperty =
+        AvaloniaProperty.Register<StrokedTextPresenter, double>(nameof(StrokeThickness), 2.0);
 
     public static readonly StyledProperty<FontFamily> FontFamilyProperty =
         TextBlock.FontFamilyProperty.AddOwner<StrokedTextPresenter>();
@@ -65,53 +44,93 @@ public sealed class StrokedTextPresenter : Decorator
     public string? Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
     public IBrush? Fill { get => GetValue(FillProperty); set => SetValue(FillProperty, value); }
     public IBrush? Stroke { get => GetValue(StrokeProperty); set => SetValue(StrokeProperty, value); }
-    public bool StrokeEnabled { get => GetValue(SEnabledProperty); set => SetValue(SEnabledProperty, value); }
-    public double StrokeThickness { get => GetValue(SThicknessProperty); set => SetValue(SThicknessProperty, value); }
+    public bool StrokeEnabled { get => GetValue(StrokeEnabledProperty); set => SetValue(StrokeEnabledProperty, value); }
+    public double StrokeThickness { get => GetValue(StrokeThicknessProperty); set => SetValue(StrokeThicknessProperty, value); }
     public FontFamily FontFamily { get => GetValue(FontFamilyProperty); set => SetValue(FontFamilyProperty, value); }
     public double FontSize { get => GetValue(FontSizeProperty); set => SetValue(FontSizeProperty, value); }
     public FontWeight FontWeight { get => GetValue(FontWeightProperty); set => SetValue(FontWeightProperty, value); }
     public new IEffect? Effect { get => GetValue(EffectProperty); set => SetValue(EffectProperty, value); }
     public new double Opacity { get => GetValue(OpacityProperty); set => SetValue(OpacityProperty, value); }
 
-    public override void Render(DrawingContext context)
+    private TextLayout? _layout;
+    private bool _layoutDirty = true;
+
+    static StrokedTextPresenter()
     {
-        // 底层先绘制矢量描边
-        if (StrokeEnabled && StrokeThickness > 0 && Stroke != null && !string.IsNullOrEmpty(Text))
+        AffectsMeasure<StrokedTextPresenter>(TextProperty, FontFamilyProperty, FontSizeProperty, FontWeightProperty);
+        AffectsRender<StrokedTextPresenter>(
+            TextProperty, FillProperty, StrokeProperty, StrokeEnabledProperty, StrokeThicknessProperty,
+            FontFamilyProperty, FontSizeProperty, FontWeightProperty, OpacityProperty);
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+        var p = change.Property;
+        if (p == TextProperty || p == FontFamilyProperty || p == FontWeightProperty || p == FontSizeProperty)
         {
-            var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
-            
-            var formattedText = new FormattedText(
-                Text,
-                CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight,
-                typeface,
-                FontSize,
-                Stroke);
+            _layoutDirty = true;
+        }
+    }
 
-            var textGeometry = formattedText.BuildGeometry(new Point(0, 0));
-            if (textGeometry != null)
-            {
-                // 计算对齐偏移（通常 TextBlock 在 Decorator 中居中或左上对齐，这里默认获取其实际 Bounds）
-                double offsetX = (Bounds.Width - formattedText.Width) / 2;
-                double offsetY = (Bounds.Height - formattedText.Height) / 2;
-
-                using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
-                using (context.PushOpacity(Opacity)) // 应用透明度，防止描边过亮
-                {
-                    // 配置画笔
-                    var strokePen = new Pen(
-                        Stroke,
-                        StrokeThickness,
-                        lineJoin: PenLineJoin.Round,
-                        lineCap: PenLineCap.Round
-                    );
-
-                    context.DrawGeometry(null, strokePen, textGeometry);
-                }
-            }
+    private void RebuildIfDirty()
+    {
+        if (!_layoutDirty && _layout != null) return;
+        _layoutDirty = false;
+        
+        if (string.IsNullOrEmpty(Text))
+        {
+            _layout = null;
+            return;
         }
 
-        // 让子 TextBlock 正常绘制正文覆盖在上面
-        base.Render(context);
+        var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
+        // 强制使用和主歌词一致的固定行高逻辑，防止上下抖动
+        var lineHeight = Math.Ceiling(FontSize * 1.4 * 2) / 2; 
+        
+        _layout = new TextLayout(Text, typeface, FontSize, Fill,
+            textAlignment: TextAlignment.Center,
+            textWrapping: TextWrapping.NoWrap,
+            lineHeight: lineHeight);
+    }
+
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        RebuildIfDirty();
+        return _layout != null ? new Size(_layout.Width, _layout.Height) : new Size();
+    }
+
+    public override void Render(DrawingContext context)
+    {
+        RebuildIfDirty();
+        if (_layout == null) return;
+
+        using (context.PushOpacity(Opacity))
+        {
+            if (StrokeEnabled && StrokeThickness > 0 && Stroke != null)
+            {
+                // 利用 FormattedText 提取完美的几何轮廓
+                var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
+                var formattedText = new FormattedText(Text ?? "", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, typeface, FontSize, Stroke);
+                
+                var geometry = formattedText.BuildGeometry(new Point(0, 0));
+                if (geometry != null)
+                {
+                    // 对齐处理：由于 TextLayout 默认有 1.4 的行高拉伸，这里需要精准找到正文的基线并居中
+                    double offsetX = (_layout.Width - formattedText.Width) / 2;
+                    // 垂直方向使用固定行高居中修正
+                    double offsetY = (_layout.Height - formattedText.Height) / 2;
+                    
+                    using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
+                    {
+                        var pen = new Pen(Stroke, StrokeThickness, lineJoin: PenLineJoin.Round, lineCap: PenLineCap.Round);
+                        context.DrawGeometry(null, pen, geometry);
+                    }
+                }
+            }
+
+            // 直接在正中间绘制正文（自带完美的渐变和抗锯齿）
+            _layout.Draw(context, new Point(0, 0));
+        }
     }
 }
