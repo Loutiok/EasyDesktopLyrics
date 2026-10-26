@@ -119,7 +119,7 @@ public sealed partial class ColorPicker : UserControl
         
         if (!RBox.IsFocused && !HBox.IsFocused && !HexBox.IsFocused) 
         {
-            UpdateRgbHslUi(c);
+            UpdateRgbHsvUi(c);
         }
         
         ColorChanged?.Invoke(c);
@@ -156,7 +156,7 @@ public sealed partial class ColorPicker : UserControl
         
         SetHexSilently(FormatHex(Color));
         UpdateIndicators();
-        UpdateRgbHslUi(Color);
+        UpdateRgbHsvUi(Color);
     }
 
     private void UpdateVisualsOnly()
@@ -173,9 +173,9 @@ public sealed partial class ColorPicker : UserControl
         UpdateIndicators();
     }
 
-    // ================== RGB 和 HSL UI 事件与同步 ==================
+    // ================== RGB 和 HSV UI 事件与同步 ==================
 
-    private void UpdateRgbHslUi(Color c)
+    private void UpdateRgbHsvUi(Color c)
     {
         if (_suppress) return;
         _suppress = true;
@@ -184,12 +184,11 @@ public sealed partial class ColorPicker : UserControl
         if (!GBox.IsFocused) GBox.Text = c.G.ToString();
         if (!BBox.IsFocused) BBox.Text = c.B.ToString();
 
-        var (h, s, l) = RgbToHsl(c);
-        var hr = Math.Round(h); var sr = Math.Round(s); var lr = Math.Round(l);
-        
-        if (!HBox.IsFocused) HBox.Text = hr.ToString();
-        if (!SBox.IsFocused) SBox.Text = sr.ToString();
-        if (!LBox.IsFocused) LBox.Text = lr.ToString();
+        // HSV 模型，直接显示整数（0-360，0-100，0-100）
+        var (h, s, v) = RgbToHsv(c);
+        if (!HBox.IsFocused) HBox.Text = Math.Round(h, 0).ToString();
+        if (!SBox.IsFocused) SBox.Text = Math.Round(s * 100, 0).ToString();
+        if (!VBox.IsFocused) VBox.Text = Math.Round(v * 100, 0).ToString();
 
         _suppress = false;
     }
@@ -209,48 +208,28 @@ public sealed partial class ColorPicker : UserControl
         }
     }
 
-    private void OnHslBoxChanged(object? sender, TextChangedEventArgs e)
+    private void OnHsvBoxChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress) return;
-        if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(LBox.Text, out var l))
+        if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(VBox.Text, out var v))
         {
             _suppress = true;
-            Color = HslToRgb(h, s, l, _a);
+            _h = h;
+            _s = Math.Clamp(s / 100.0, 0, 1);
+            _v = Math.Clamp(v / 100.0, 0, 1);
+            
+            Color = HsvToRgb(_h, _s, _v, _a);
             _suppress = false;
             
-            SyncHsvFromColor(Color);
             UpdateVisualsOnly();
             ColorChanged?.Invoke(Color);
         }
-    }
-
-    private void ApplyFromRgb(byte r, byte g, byte b)
-    {
-        _suppress = true;
-        Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
-        _suppress = false;
-        
-        SyncHsvFromColor(Color);
-        RefreshUi();
-        ColorChanged?.Invoke(Color);
-    }
-
-    private void ApplyFromHsl(double h, double s, double l)
-    {
-        _suppress = true;
-        Color = HslToRgb(h, s, l, _a);
-        _suppress = false;
-        
-        SyncHsvFromColor(Color);
-        RefreshUi();
-        ColorChanged?.Invoke(Color);
     }
 
     // ================== 焦点与键盘事件 ==================
     
     private void OnBoxLostFocus(object? sender, RoutedEventArgs e)
     {
-        // 失去焦点时不强行去用 HSV 转换重新赋值，以免造成精度丢失
         if (_suppress) return;
         RefreshUi();
     }
@@ -283,14 +262,14 @@ public sealed partial class ColorPicker : UserControl
         
         if (Color.TryParse(input, out var c))
         {
-            // 只要是直接从 Hex 解析出来的颜色，绝对不让 HSV 干涉它
+            // 直接从 Hex 解析，防止任何 HSV 转换精度误差
             _suppress = true;
             Color = c;
             _suppress = false;
             
             SyncHsvFromColor(c);
             UpdateVisualsOnly();
-            UpdateRgbHslUi(c);
+            UpdateRgbHsvUi(c);
             
             string standardHex = FormatHex(c);
             
@@ -325,7 +304,6 @@ public sealed partial class ColorPicker : UserControl
         Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 6));
     }
 
-    // 保持 6 位 Hex
     private static string FormatHex(Color c) =>
         $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
@@ -358,53 +336,6 @@ public sealed partial class ColorPicker : UserControl
         else h = 60 * ((r - g) / d + 4);
         if (h < 0) h += 360;
         return (h, max == 0 ? 0 : d / max, max);
-    }
-
-    private static (double H, double S, double L) RgbToHsl(Color c)
-    {
-        double r = c.R / 255.0, g = c.G / 255.0, b = c.B / 255.0;
-        double max = Math.Max(r, Math.Max(g, b));
-        double min = Math.Min(r, Math.Min(g, b));
-        double h = 0, s = 0, l = (max + min) / 2.0;
-        double d = max - min;
-
-        if (d != 0)
-        {
-            s = l > 0.5 ? d / (2.0 - max - min) : d / (max + min);
-            if (max == r) h = (g - b) / d + (g < b ? 6 : 0);
-            else if (max == g) h = (b - r) / d + 2;
-            else if (max == b) h = (r - g) / d + 4;
-            h /= 6;
-        }
-        return (h * 360, s * 100, l * 100);
-    }
-
-    private static Color HslToRgb(double h, double s, double l, double a = 1.0)
-    {
-        h = Math.Clamp(h, 0, 360) / 360.0;
-        s = Math.Clamp(s, 0, 100) / 100.0;
-        l = Math.Clamp(l, 0, 100) / 100.0;
-        double r, g, b;
-        if (s == 0) r = g = b = l;
-        else
-        {
-            double q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-            double p = 2 * l - q;
-            r = HueToRgb(p, q, h + 1.0 / 3.0);
-            g = HueToRgb(p, q, h);
-            b = HueToRgb(p, q, h - 1.0 / 3.0);
-        }
-        return Color.FromArgb((byte)Math.Round(a * 255), (byte)Math.Round(r * 255), (byte)Math.Round(g * 255), (byte)Math.Round(b * 255));
-    }
-
-    private static double HueToRgb(double p, double q, double t)
-    {
-        if (t < 0) t += 1;
-        if (t > 1) t -= 1;
-        if (t < 1.0 / 6.0) return p + (q - p) * 6 * t;
-        if (t < 1.0 / 2.0) return q;
-        if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6;
-        return p;
     }
 
     // ---- 静态渐变画笔构建 ----
