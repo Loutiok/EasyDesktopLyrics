@@ -27,10 +27,7 @@ public sealed class AppSettings
     // 未播放渐变色 (带透明度，默认看起来比较暗淡)
     public string InactiveGradientTopColorHex { get; set; } = "#60FFFFFF";
     public string InactiveGradientBottomColorHex { get; set; } = "#404080D0";
-    /// <summary>未唱段颜色（逐字模式未演唱部分）；空 = 跟随主色。</summary>
-    public string InactiveColorHex { get; set; } = "";
-    /// <summary>未唱段不透明度比例（相对全局透明度；1.0 = 与已唱段相同亮度）。</summary>
-    public double InactiveOpacity { get; set; } = 0.45;
+    
     public bool ShadowEnabled { get; set; } = true;
     public string ShadowColorHex { get; set; } = "#000000";
     public double ShadowBlurRadius { get; set; } = 8;
