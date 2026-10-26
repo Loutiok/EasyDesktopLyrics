@@ -60,7 +60,6 @@ public sealed partial class ColorPicker : UserControl
     }
 
     // ================== 拖拽指针事件 ==================
-
     private void OnSvPressed(object? sender, PointerPressedEventArgs e) { _dragging = true; e.Pointer.Capture(SvPanel); OnSvPointer(sender, e); }
     private void OnHuePressed(object? sender, PointerPressedEventArgs e) { _dragging = true; e.Pointer.Capture(HueBar); OnHuePointer(sender, e); }
     private void OnValuePressed(object? sender, PointerPressedEventArgs e) { _dragging = true; e.Pointer.Capture(ValueBar); OnValuePointer(sender, e); }
@@ -115,7 +114,6 @@ public sealed partial class ColorPicker : UserControl
         SetHexSilently(FormatHex(c));
         UpdateIndicators();
         
-        // 如果用户此刻没有在打字，才去同步滑块和输入框
         if (!RBox.IsFocused && !HBox.IsFocused && !HexBox.IsFocused) 
         {
             UpdateRgbHslUi(c);
@@ -158,7 +156,7 @@ public sealed partial class ColorPicker : UserControl
         UpdateRgbHslUi(Color);
     }
 
-    // 关键修改：打字时只更新色盘，绝对不修改任何 TextBox 的值
+    // ⭐️ 只更新可视化，绝对不碰任何 TextBox 的内容
     private void UpdateVisualsOnly()
     {
         var hue = HsvToRgb(_h, 1, 1, 1);
@@ -170,8 +168,6 @@ public sealed partial class ColorPicker : UserControl
         HueBar.Background = _hueBrush;
         ValueBar.Background = _valueBrush;
         PreviewBlock.Background = new SolidColorBrush(Color);
-        
-        SetHexSilently(FormatHex(Color));
         UpdateIndicators();
     }
 
@@ -205,23 +201,17 @@ public sealed partial class ColorPicker : UserControl
     private void OnRgbBoxChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress) return;
-        // 确保三个框都能解析成合法的 byte
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
-            ApplyFromRgb(r, g, b, isTyping: true);
-    }
-
-    private void ApplyFromRgb(byte r, byte g, byte b, bool isTyping = false)
-    {
-        _suppress = true;
-        Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
-        _suppress = false;
-        
-        SyncHsvFromColor(Color);
-        
-        if (isTyping) UpdateVisualsOnly(); 
-        else RefreshUi();
-        
-        ColorChanged?.Invoke(Color);
+        {
+            _suppress = true;
+            // 🔥 直接赋值，防止通过 HSV 绕一圈导致 172 变成 174
+            Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
+            _suppress = false;
+            
+            SyncHsvFromColor(Color);
+            UpdateVisualsOnly(); // 只更新色盘，不碰 TextBox
+            ColorChanged?.Invoke(Color);
+        }
     }
 
     private void OnHslSliderChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -234,20 +224,36 @@ public sealed partial class ColorPicker : UserControl
     {
         if (_suppress) return;
         if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(LBox.Text, out var l))
-            ApplyFromHsl(h, s, l, isTyping: true);
+        {
+            _suppress = true;
+            Color = HslToRgb(h, s, l, _a);
+            _suppress = false;
+            
+            SyncHsvFromColor(Color);
+            UpdateVisualsOnly();
+            ColorChanged?.Invoke(Color);
+        }
     }
 
-    private void ApplyFromHsl(double h, double s, double l, bool isTyping = false)
+    private void ApplyFromRgb(byte r, byte g, byte b)
+    {
+        _suppress = true;
+        Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
+        _suppress = false;
+        
+        SyncHsvFromColor(Color);
+        RefreshUi();
+        ColorChanged?.Invoke(Color);
+    }
+
+    private void ApplyFromHsl(double h, double s, double l)
     {
         _suppress = true;
         Color = HslToRgb(h, s, l, _a);
         _suppress = false;
         
         SyncHsvFromColor(Color);
-        
-        if (isTyping) UpdateVisualsOnly();
-        else RefreshUi();
-        
+        RefreshUi();
         ColorChanged?.Invoke(Color);
     }
 
@@ -255,12 +261,14 @@ public sealed partial class ColorPicker : UserControl
     
     private void OnBoxLostFocus(object? sender, RoutedEventArgs e)
     {
-        // 用户离开输入框时，才去规整所有数字，并全量刷新
+        // 🔥 失去焦点时，重新读取并应用，强制修正不规整的数字并同步所有 UI
         if (_suppress) return;
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
-            ApplyFromRgb(r, g, b, isTyping: false);
+            ApplyFromRgb(r, g, b);
         else if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(LBox.Text, out var l))
-            ApplyFromHsl(h, s, l, isTyping: false);
+            ApplyFromHsl(h, s, l);
+        else
+            RefreshUi(); // 如果输入了非数字，直接恢复当前颜色值
     }
 
     private void OnBoxKeyDown(object? sender, KeyEventArgs e)
@@ -277,15 +285,13 @@ public sealed partial class ColorPicker : UserControl
     private void OnHexChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress || HexBox.Text is null) return;
-        
-        // 支持 6 位或 8 位解析
         if (Color.TryParse(HexBox.Text.Trim(), out var c))
         {
             _suppress = true;
             Color = c;
             _suppress = false;
             SyncHsvFromColor(c);
-            UpdateVisualsOnly(); // 改 Hex 时不动下方的滑块
+            UpdateVisualsOnly(); 
             ColorChanged?.Invoke(c);
         }
     }
@@ -308,12 +314,11 @@ public sealed partial class ColorPicker : UserControl
         Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 6));
     }
 
-    // ⭐️ 强制输出 6 位 Hex，完全和用户需求匹配
+    // 强制输出 6 位 Hex
     private static string FormatHex(Color c) =>
         $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
     // ---- 色彩空间转换 ----
-
     private static Color HsvToRgb(double h, double s, double v, double a = 1.0)
     {
         var c = v * s;
@@ -392,7 +397,6 @@ public sealed partial class ColorPicker : UserControl
     }
 
     // ---- 静态渐变画笔构建 ----
-
     private static LinearGradientBrush BuildPanelBrush(Color hue) => new()
     {
         StartPoint = new RelativePoint(0, 0.5, RelativeUnit.Relative),
