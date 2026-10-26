@@ -373,43 +373,27 @@ public sealed class LyricText : Control
     /// </summary>
     private void DrawVectorStroke(DrawingContext context, TextLayout body, double thickness)
     {
+        //未开启描边、没有文本或描边画笔为空时，不执行任何操作
         if (thickness <= 0 || string.IsNullOrEmpty(Text) || StrokeBrush == null)
             return;
-
-        var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
-        
-        // 强制左对齐提取轮廓，以便我们手动计算居中对齐的偏移
-        var formattedText = new FormattedText(
-            Text,
-            CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight,
-            typeface,
-            FontSize,
-            StrokeBrush);
-
-        var textGeometry = formattedText.BuildGeometry(new Point(0, 0));
+    
+        // 直接让 Avalonia 的 TextLayout (body) 自己导出它的矢量路径 Geometry
+        // 这样做出来的 Geometry 会完美继承 body 的“居中对齐”、“字重”、“换行”等所有排版属性
+        var textGeometry = body.BuildGeometry(new Point(0, 0));
         if (textGeometry == null)
             return;
-
-        // 计算 X 轴对齐偏移量
-        double offsetX = 0;
-        if (TextAlignment == TextAlignment.Center)
-            offsetX = (body.Width - formattedText.Width) / 2;
-        else if (TextAlignment == TextAlignment.Right)
-            offsetX = body.Width - formattedText.Width;
-
-        // 某些字体下，FormattedText 和 TextLayout 的 Y 轴基线可能存在差异，这里保持默认偏移
-        double offsetY = 0;
-
-        using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
-        {
-            // 使用圆滑连接的 Pen 进行极细描边
-            var strokePen = new Pen(StrokeBrush, thickness,
-                lineJoin: PenLineJoin.Round,
-                lineCap: PenLineCap.Round);
-
-            context.DrawGeometry(null, strokePen, textGeometry);
-        }
+    
+        // 配置圆润的极细描边画笔 Pen
+        var strokePen = new Pen(
+            StrokeBrush, 
+            thickness,
+            lineJoin: PenLineJoin.Round,  // 必须是 Round，防止转角处出现刺出或者破损
+            lineCap: PenLineCap.Round     // 必须是 Round，保证笔画末端圆润
+        );
+    
+        // 渲染：由于从 body 导出的 Geometry 已经自带有居中偏移量，
+        // 这里直接绘制即可，绝对不能再叠加任何 offsetX/offsetY 偏移，否则会二次错位
+        context.DrawGeometry(null, strokePen, textGeometry);
     }
 
     protected override Size MeasureOverride(Size availableSize)
