@@ -1,15 +1,15 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="EasyDesktopLyrics.Views.ColorPicker"
-             MinWidth="220">
+             MinWidth="135" Width="135">
 
-  <StackPanel Spacing="6">
-    <!-- 饱和度/明度面板 (高度从 130 减到 100) -->
-    <Border x:Name="SvPanel" Height="100" CornerRadius="4" ClipToBounds="True"
+  <StackPanel Spacing="4">
+    <!-- 饱和度/明度面板 (紧凑) -->
+    <Border x:Name="SvPanel" Height="85" CornerRadius="4" ClipToBounds="True"
             Background="White" Cursor="Cross">
       <Border x:Name="SvShade" Background="Transparent" CornerRadius="4">
         <Canvas>
-          <Border x:Name="SvIndicator" Width="10" Height="10" CornerRadius="5"
+          <Border x:Name="SvIndicator" Width="8" Height="8" CornerRadius="4"
                   BorderBrush="White" BorderThickness="1.5" Background="Transparent"
                   Canvas.Left="0" Canvas.Top="0" />
         </Canvas>
@@ -17,64 +17,49 @@
     </Border>
 
     <!-- 色相条 -->
-    <Border x:Name="HueBar" Height="10" CornerRadius="4" Cursor="Cross">
+    <Border x:Name="HueBar" Height="8" CornerRadius="3" Cursor="Cross">
       <Canvas>
-        <Border x:Name="HueIndicator" Width="4" Height="14" CornerRadius="2"
+        <Border x:Name="HueIndicator" Width="4" Height="12" CornerRadius="1"
                 BorderBrush="White" BorderThickness="1" Background="Transparent"
                 Canvas.Left="0" Canvas.Top="-2" />
       </Canvas>
     </Border>
 
     <!-- 明暗（V）条 -->
-    <Border x:Name="ValueBar" Height="10" CornerRadius="4" Cursor="Cross">
+    <Border x:Name="ValueBar" Height="8" CornerRadius="3" Cursor="Cross">
       <Canvas>
-        <Border x:Name="ValueIndicator" Width="4" Height="14" CornerRadius="2"
+        <Border x:Name="ValueIndicator" Width="4" Height="12" CornerRadius="1"
                 BorderBrush="White" BorderThickness="1" Background="Transparent"
                 Canvas.Left="0" Canvas.Top="-2" />
       </Canvas>
     </Border>
 
-    <!-- Hex 输入 + 预览 (高度缩到 24，预览块缩到 32) -->
-    <Grid ColumnDefinitions="*,32" ColumnSpacing="6" Margin="0,2,0,0">
-      <TextBox x:Name="HexBox" VerticalAlignment="Center" Height="24" MinHeight="24" Padding="6,0" FontSize="12" VerticalContentAlignment="Center" />
-      <Border x:Name="PreviewBlock" Grid.Column="1" Width="32" Height="24"
+    <!-- Hex 输入 + 预览 -->
+    <Grid ColumnDefinitions="*,28" ColumnSpacing="4" Margin="0,2,0,0">
+      <TextBox x:Name="HexBox" VerticalAlignment="Center" Height="24" MinHeight="24" Padding="4,0" FontSize="12" VerticalContentAlignment="Center" />
+      <Border x:Name="PreviewBlock" Grid.Column="1" Width="28" Height="24"
               CornerRadius="4" VerticalAlignment="Center" BorderBrush="#33FFFFFF" BorderThickness="1" />
     </Grid>
 
-    <!-- RGB / HSL 切换面板 -->
+    <!-- 纯输入框的切换页 -->
     <TabControl Padding="0" Margin="0,2,0,0">
-      <TabItem Header="RGB" FontSize="11" Padding="8,4">
-        <!-- 输入框宽度缩到 36，字体 12，列间距减小 -->
-        <Grid ColumnDefinitions="14,*,36" RowDefinitions="Auto,Auto,Auto" RowSpacing="4" Margin="0,4,0,0" ColumnSpacing="6">
-          <TextBlock Text="R" Foreground="#FF5555" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
-          <Slider Grid.Column="1" x:Name="RSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" Height="20" />
-          <TextBox Grid.Column="2" x:Name="RBox" Height="22" MinHeight="22" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
-
-          <TextBlock Text="G" Grid.Row="1" Foreground="#55FF55" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
-          <Slider Grid.Column="1" Grid.Row="1" x:Name="GSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" Height="20" />
-          <TextBox Grid.Column="2" Grid.Row="1" x:Name="GBox" Height="22" MinHeight="22" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
-
-          <TextBlock Text="B" Grid.Row="2" Foreground="#5555FF" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
-          <Slider Grid.Column="1" Grid.Row="2" x:Name="BSlider" Minimum="0" Maximum="255" ValueChanged="OnRgbSliderChanged" Height="20" />
-          <TextBox Grid.Column="2" Grid.Row="2" x:Name="BBox" Height="22" MinHeight="22" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+      <TabItem Header="RGB" FontSize="10" Padding="4,2">
+        <!-- 横排三个输入框 -->
+        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="4" Margin="0,4,0,0">
+          <TextBox x:Name="RBox" Height="24" MinHeight="24" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox x:Name="GBox" Grid.Column="1" Height="24" MinHeight="24" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox x:Name="BBox" Grid.Column="2" Height="24" MinHeight="24" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnRgbBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
         </Grid>
       </TabItem>
 
-      <TabItem Header="HSL" FontSize="11" Padding="8,4">
-        <Grid ColumnDefinitions="14,*,36" RowDefinitions="Auto,Auto,Auto" RowSpacing="4" Margin="0,4,0,0" ColumnSpacing="6">
-          <TextBlock Text="H" FontSize="11" VerticalAlignment="Center" FontWeight="Bold"/>
-          <Slider Grid.Column="1" x:Name="HSlider" Minimum="0" Maximum="360" ValueChanged="OnHslSliderChanged" Height="20" />
-          <TextBox Grid.Column="2" x:Name="HBox" Height="22" MinHeight="22" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
-
-          <TextBlock Text="S" Grid.Row="1" FontSize="11" VerticalAlignment="Center" FontWeight="Bold"/>
-          <Slider Grid.Column="1" Grid.Row="1" x:Name="SSlider" Minimum="0" Maximum="100" ValueChanged="OnHslSliderChanged" Height="20" />
-          <TextBox Grid.Column="2" Grid.Row="1" x:Name="SBox" Height="22" MinHeight="22" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
-
-          <TextBlock Text="L" Grid.Row="2" FontSize="11" VerticalAlignment="Center" FontWeight="Bold"/>
-          <Slider Grid.Column="1" Grid.Row="2" x:Name="LSlider" Minimum="0" Maximum="100" ValueChanged="OnHslSliderChanged" Height="20" />
-          <TextBox Grid.Column="2" Grid.Row="2" x:Name="LBox" Height="22" MinHeight="22" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+      <TabItem Header="HSL" FontSize="10" Padding="4,2">
+        <Grid ColumnDefinitions="*,*,*" ColumnSpacing="4" Margin="0,4,0,0">
+          <TextBox x:Name="HBox" Height="24" MinHeight="24" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox x:Name="SBox" Grid.Column="1" Height="24" MinHeight="24" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
+          <TextBox x:Name="LBox" Grid.Column="2" Height="24" MinHeight="24" Padding="0" VerticalContentAlignment="Center" TextAlignment="Center" FontSize="12" TextChanged="OnHslBoxChanged" LostFocus="OnBoxLostFocus" KeyDown="OnBoxKeyDown" />
         </Grid>
       </TabItem>
     </TabControl>
   </StackPanel>
+
 </UserControl>
