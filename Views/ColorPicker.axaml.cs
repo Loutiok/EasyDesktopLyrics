@@ -296,17 +296,33 @@ public sealed partial class ColorPicker : UserControl
     private void OnHexChanged(object? sender, TextChangedEventArgs e)
     {
         if (_suppress || HexBox.Text is null) return;
-        if (Color.TryParse(HexBox.Text.Trim(), out var c))
+        
+        var input = HexBox.Text.Trim();
+        
+        // 支持 6 位或 8 位解析
+        if (Color.TryParse(input, out var c))
         {
             _suppress = true;
             Color = c;
             _suppress = false;
-            SyncHsvFromColor(c);
             
-            // 更新底下的 RGB/HSL 框，因为 SetHexSilently 带有焦点保护，不会打断输入
+            SyncHsvFromColor(c);
             UpdateRgbHslUi(c); 
             UpdateVisualsOnly();
             
+            // 自动转换为标准大写格式，并保证光标不打断
+            string standardHex = FormatHex(c);
+            
+            // 如果输入/粘贴的长度已经和标准一致，且内容不同（比如有小写），则强制替换
+            if (input.Length == standardHex.Length && input != standardHex)
+            {
+                int caretIndex = HexBox.CaretIndex; // 记录光标位置
+                _suppress = true;
+                HexBox.Text = standardHex; // 覆盖为大写
+                HexBox.CaretIndex = Math.Min(caretIndex, standardHex.Length); // 恢复光标
+                _suppress = false;
+            }
+
             ColorChanged?.Invoke(c);
         }
     }
