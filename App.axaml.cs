@@ -39,6 +39,7 @@ public sealed class App : Application
 
         // ---- 组装服务 ----
         _settingsService = new SettingsService();
+        Log.CurrentLevel = (LogLevel)_settingsService.Current.LogLevelIndex;
         var settings = _settingsService.Current;
 
         AutoStart.Sync(settings.AutoStart);
@@ -89,6 +90,7 @@ public sealed class App : Application
 
         _settingsService.Changed += () =>
         {
+            Log.CurrentLevel = (LogLevel)_settingsService.Current.LogLevelIndex;
             AutoStart.Sync(_settingsService.Current.AutoStart);
             _smtcService.SetPreferredSession(_settingsService.Current.LockedSessionAumid);
             _smtcService.SetPlayerRules(_settingsService.Current.PlayerPriorities);
