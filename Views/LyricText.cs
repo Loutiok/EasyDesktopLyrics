@@ -4,6 +4,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Utilities;
+using System.Globalization;
 
 namespace EasyDesktopLyrics.Views;
 
@@ -11,7 +12,7 @@ namespace EasyDesktopLyrics.Views;
 /// 自绘歌词文本：非逐字时整行单色 TextLayout 平涂；
 /// 逐字（卡拉 OK）时整行一次绘制 + 线性渐变笔刷——每个字符按"已唱色 → 分界线 → 柔和过渡带 → 未唱色"
 /// 平滑渐变，分界线在当前字内部随 HighlightFraction 平滑右移（真渐变填充，非硬裁剪）。
-/// 描边 = 8 向偏移整行绘制（使用描边渐变）；辉光由外部 Effect 提供（作用于渐变结果）。
+/// 描边 = 使用 FormattedText 的矢量几何轮廓（Geometry）进行细线渲染，极致圆润且支持极细宽度。
 /// HighlightLength = -1 时整行单色（无逐字数据）。
 /// </summary>
 public sealed class LyricText : Control
@@ -21,20 +22,6 @@ public sealed class LyricText : Control
         // 禁用 ClearType 亚像素渲染，使用灰度抗锯齿。
         // 彻底解决透明窗口下文字边缘出现红、蓝、黄彩色毛边的问题。
         RenderOptions.SetTextRenderingMode(this, TextRenderingMode.Antialias);
-    }
-
-    // 使用 16 向圆周采样，让描边没有任何棱角，极致圆润
-    private static readonly (double dx, double dy)[] StrokeOffsets = GenerateCircularOffsets(16);
-
-    private static (double dx, double dy)[] GenerateCircularOffsets(int count)
-    {
-        var offsets = new (double dx, double dy)[count];
-        for (var i = 0; i < count; i++)
-        {
-            var angle = 2 * Math.PI * i / count;
-            offsets[i] = (Math.Cos(angle), Math.Sin(angle));
-        }
-        return offsets;
     }
 
     /// <summary>层角色：整行、已唱段、未唱段或指定字符。</summary>
@@ -126,7 +113,6 @@ public sealed class LyricText : Control
         AvaloniaProperty.Register<LyricText, TextAlignment>(nameof(TextAlignment), TextAlignment.Center);
 
     private TextLayout? _bodyLayout;
-    private TextLayout? _strokeLayout;
     private bool _layoutDirty = true;
     private double[] _charLeft = [];
     private readonly Dictionary<(int Start, int Length, byte OpacityStep), TextLayout> _glyphLayouts = [];
@@ -367,57 +353,63 @@ public sealed class LyricText : Control
 
         using (context.PushOpacityMask(mask, new Rect(0, 0, body.Width, body.Height)))
         {
-            if (thickness > 0 && _strokeLayout != null)
-            {
-                // 如果用户设置了小于 1.0 的极细描边（如 0.5），为了防止 16 次绘制严重重叠发黑，
-                // 我们改用 8 向采样，并保持抗锯齿的平滑度。
-                if (thickness < 1.0)
-                {
-                    var d = thickness * 0.707;
-                    var thinOffsets = new (double dx, double dy)[]
-                    {
-                        (0, -thickness), (0, thickness), (-thickness, 0), (thickness, 0),
-                        (-d, -d), (d, d), (-d, d), (d, -d)
-                    };
-                    foreach (var (dx, dy) in thinOffsets)
-                        _strokeLayout.Draw(context, new Point(dx, dy));
-                }
-                else
-                {
-                    // 大于等于 1.0 时，使用 16 向圆环采样，极致圆润
-                    foreach (var (dx, dy) in StrokeOffsets)
-                        _strokeLayout.Draw(context, new Point(dx * thickness, dy * thickness));
-                }
-            }
+            // 遮罩内部同样使用矢量描边，这样卡拉OK的渐变依然能完美裁剪描边
+            DrawVectorStroke(context, body, thickness);
+            body.Draw(context, new Point());
         }
     }
 
     private void DrawBody(DrawingContext context, TextLayout body, double thickness)
     {
-        if (thickness > 0 && _strokeLayout != null)
-        {
-            // 如果用户设置了小于 1.0 的极细描边（如 0.5），为了防止 16 次绘制严重重叠发黑，
-            // 我们改用 8 向采样，并保持抗锯齿的平滑度。
-            if (thickness < 1.0)
-            {
-                var d = thickness * 0.707;
-                var thinOffsets = new (double dx, double dy)[]
-                {
-                    (0, -thickness), (0, thickness), (-thickness, 0), (thickness, 0),
-                    (-d, -d), (d, d), (-d, d), (d, -d)
-                };
-                foreach (var (dx, dy) in thinOffsets)
-                    _strokeLayout.Draw(context, new Point(dx, dy));
-            }
-            else
-            {
-                // 大于等于 1.0 时，使用 16 向圆环采样，极致圆润
-                foreach (var (dx, dy) in StrokeOffsets)
-                    _strokeLayout.Draw(context, new Point(dx * thickness, dy * thickness));
-            }
-        }
-
+        // 使用矢量几何描边
+        DrawVectorStroke(context, body, thickness);
+        // 最后覆盖正文，保证主体颜色纯净
         body.Draw(context, new Point());
+    }
+
+    /// <summary>
+    /// 基于 FormattedText 获取矢量轮廓（Geometry）进行精准描边。
+    /// 完美解决了多次偏移叠加导致的发黑、极细模糊问题，并支持圆润的尖角过渡。
+    /// </summary>
+    private void DrawVectorStroke(DrawingContext context, TextLayout body, double thickness)
+    {
+        if (thickness <= 0 || string.IsNullOrEmpty(Text) || StrokeBrush == null)
+            return;
+
+        var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
+        
+        // 强制左对齐提取轮廓，以便我们手动计算居中对齐的偏移
+        var formattedText = new FormattedText(
+            Text,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            FontSize,
+            StrokeBrush);
+
+        var textGeometry = formattedText.BuildGeometry(new Point(0, 0));
+        if (textGeometry == null)
+            return;
+
+        // 计算 X 轴对齐偏移量
+        double offsetX = 0;
+        if (TextAlignment == TextAlignment.Center)
+            offsetX = (body.Width - formattedText.Width) / 2;
+        else if (TextAlignment == TextAlignment.Right)
+            offsetX = body.Width - formattedText.Width;
+
+        // 某些字体下，FormattedText 和 TextLayout 的 Y 轴基线可能存在差异，这里保持默认偏移
+        double offsetY = 0;
+
+        using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
+        {
+            // 使用圆滑连接的 Pen 进行极细描边
+            var strokePen = new Pen(StrokeBrush, thickness,
+                lineJoin: PenLineJoin.Round,
+                lineCap: PenLineCap.Round);
+
+            context.DrawGeometry(null, strokePen, textGeometry);
+        }
     }
 
     protected override Size MeasureOverride(Size availableSize)
@@ -444,7 +436,6 @@ public sealed class LyricText : Control
         if (string.IsNullOrEmpty(text))
         {
             _bodyLayout = null;
-            _strokeLayout = null;
             _charLeft = [];
             return;
         }
@@ -454,11 +445,6 @@ public sealed class LyricText : Control
         var wrapping = TextWrapping.NoWrap;
         var maxWidth = double.PositiveInfinity;
         var maxHeight = double.PositiveInfinity;
-
-        // 整行单色：逐字明暗由渐变遮罩（BuildMask/BuildGradient）实现，这里只需一种前景色
-        _strokeLayout = StrokeEnabled && StrokeThickness > 0 && StrokeBrush != null
-            ? CreateLayout(text, typeface, StrokeBrush, alignment, wrapping, maxWidth, maxHeight)
-            : null;
 
         _bodyLayout = CreateLayout(text, typeface, Fill, alignment, wrapping, maxWidth, maxHeight);
         _charLeft = BuildCharLefts(_bodyLayout, text);
@@ -666,9 +652,6 @@ public sealed class LyricText : Control
         string text, Typeface typeface, IBrush? foreground, TextAlignment alignment,
         TextWrapping wrapping, double maxWidth, double maxHeight)
     {
-        // TextLayout 的默认行高会随实际字形及回退字体变化。同一字号在拉丁、日文和特殊符号间
-        // 切换时可能相差约 1 DIP，进而让透明窗口在切歌前后产生肉眼可见的两像素抖动。
-        // 使用只由字号决定并对齐到半 DIP 的固定行高，使测量结果与文本内容无关。
         var lineHeight = Math.Ceiling(FontSize * 1.4 * 2) / 2;
         return new TextLayout(text, typeface, FontSize, foreground,
             textAlignment: alignment,
