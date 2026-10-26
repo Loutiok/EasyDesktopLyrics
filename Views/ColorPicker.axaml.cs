@@ -49,6 +49,9 @@ public sealed partial class ColorPicker : UserControl
         ValueBar.PointerReleased += OnReleased;
 
         HexBox.TextChanged += OnHexChanged;
+        HexBox.LostFocus += OnHexLostFocus;
+        HexBox.KeyDown += OnBoxKeyDown;
+        
         ColorProperty.Changed.AddClassHandler<ColorPicker>((x, _) => x.OnColorExternallyChanged());
         SizeChanged += (_, _) => UpdateIndicators();
     }
@@ -156,7 +159,7 @@ public sealed partial class ColorPicker : UserControl
         UpdateRgbHslUi(Color);
     }
 
-    // ⭐️ 只更新可视化，绝对不碰任何 TextBox 的内容
+    // 只更新可视化色盘，绝不修改任何 TextBox 的内容
     private void UpdateVisualsOnly()
     {
         var hue = HsvToRgb(_h, 1, 1, 1);
@@ -204,12 +207,11 @@ public sealed partial class ColorPicker : UserControl
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
         {
             _suppress = true;
-            // 🔥 直接赋值，防止通过 HSV 绕一圈导致 172 变成 174
             Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
             _suppress = false;
             
             SyncHsvFromColor(Color);
-            UpdateVisualsOnly(); // 只更新色盘，不碰 TextBox
+            UpdateVisualsOnly(); // 打字时只更新色盘
             ColorChanged?.Invoke(Color);
         }
     }
@@ -261,14 +263,34 @@ public sealed partial class ColorPicker : UserControl
     
     private void OnBoxLostFocus(object? sender, RoutedEventArgs e)
     {
-        // 🔥 失去焦点时，重新读取并应用，强制修正不规整的数字并同步所有 UI
         if (_suppress) return;
+        
+        bool valid = false;
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
+        {
             ApplyFromRgb(r, g, b);
+            valid = true;
+        }
         else if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(LBox.Text, out var l))
+        {
             ApplyFromHsl(h, s, l);
-        else
-            RefreshUi(); // 如果输入了非数字，直接恢复当前颜色值
+            valid = true;
+        }
+
+        // 🔥 核心修复：如果用户输入了非法的数字，失去焦点时强行恢复当前正确的 UI 状态
+        if (!valid)
+        {
+            RefreshUi();
+        }
+    }
+
+    private void OnHexLostFocus(object? sender, RoutedEventArgs e)
+    {
+        // Hex 框失去焦点时，如果输入不合法，同样强行恢复正确的 Hex
+        if (!Color.TryParse(HexBox.Text?.Trim(), out _))
+        {
+            RefreshUi();
+        }
     }
 
     private void OnBoxKeyDown(object? sender, KeyEventArgs e)
@@ -276,6 +298,7 @@ public sealed partial class ColorPicker : UserControl
         if (e.Key == Key.Enter)
         {
             OnBoxLostFocus(sender, new RoutedEventArgs());
+            OnHexLostFocus(sender, new RoutedEventArgs());
             e.Handled = true;
         }
     }
@@ -291,13 +314,18 @@ public sealed partial class ColorPicker : UserControl
             Color = c;
             _suppress = false;
             SyncHsvFromColor(c);
-            UpdateVisualsOnly(); 
+            
+            // 🔥 核心修复：Hex 变化时，不仅要更新色盘，还要立刻联动下面的 RGB / HSL 滑块！
+            // 因为 SetHexSilently 中有焦点保护，所以这里直接调 RefreshUi 不会覆盖你正在输入的 Hex。
+            RefreshUi(); 
+            
             ColorChanged?.Invoke(c);
         }
     }
 
     private void SetHexSilently(string hex)
     {
+        // 焦点保护：如果你正在输入 Hex，绝不打断你
         if (HexBox.Text == hex || HexBox.IsFocused) return;
         _suppress = true;
         HexBox.Text = hex;
@@ -314,7 +342,6 @@ public sealed partial class ColorPicker : UserControl
         Canvas.SetLeft(ValueIndicator, _v * Math.Max(0, ValueBar.Bounds.Width - 6));
     }
 
-    // 强制输出 6 位 Hex
     private static string FormatHex(Color c) =>
         $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
