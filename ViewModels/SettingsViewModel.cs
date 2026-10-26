@@ -93,7 +93,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         nameof(LuminousGlowStrengthVal), nameof(LuminousLongNoteThresholdVal), nameof(LuminousReleaseVal),
         nameof(ShadowBlurVal), nameof(ShadowOffsetYVal),
         nameof(TransFontSizeVal), nameof(LineSpacingVal), nameof(TextOpacity), nameof(MaxWidth),
-        nameof(ShowTranslation), nameof(HideWhenPaused), nameof(ShowTitleWhenNoLyric), nameof(AutoStartEnabled), nameof(IsLocked),
+                nameof(ShowTranslation), nameof(HideWhenPaused), nameof(ShowTitleWhenNoLyric), nameof(AutoStartEnabled), nameof(IsLocked), nameof(LogLevelIndex),
         nameof(LineTransitionEnabled), nameof(LineTransitionTypeIndex), nameof(LineTransitionSpeedVal),
         nameof(LineTransitionEasingIndex), nameof(LineTransitionDirectionIndex), nameof(LineTransitionDistanceVal),
         nameof(LineTransitionScaleVal), nameof(ShowSlideOptions), nameof(ShowScaleOptions),
