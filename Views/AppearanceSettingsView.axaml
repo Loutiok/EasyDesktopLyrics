@@ -31,7 +31,7 @@
       <StackPanel Spacing="12">
         <StackPanel Spacing="2">
           <TextBlock Classes="cardTitle" Text="文字与配色" />
-          <TextBlock Classes="cardDesc" Text="歌词字号、字重，以及已播放/未播放的渐变与描边配色。" />
+          <TextBlock Classes="cardDesc" Text="歌词字号、字重，以及已播放/未播放的渐变配色。" />
         </StackPanel>
         
         <!-- 字号 / 字重 -->
@@ -54,7 +54,7 @@
 
         <!-- 已播放配色 -->
         <TextBlock Classes="cardTitle" FontSize="13" Text="已播放配色" />
-        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <StackPanel Orientation="Horizontal" Spacing="20" VerticalAlignment="Center">
           <!-- 预览色块 -->
           <Border Width="48" Height="32" CornerRadius="4" BorderBrush="#2BFFFFFF" BorderThickness="1">
             <Border.Background>
@@ -74,18 +74,13 @@
             <TextBlock Classes="sectionLabel" Text="渐变下" />
             <local:ColorPicker Color="{Binding GradientBottomColorValue, Mode=TwoWay}" />
           </StackPanel>
-          
-          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-            <TextBlock Classes="sectionLabel" Text="描边" />
-            <local:ColorPicker Color="{Binding StrokeColorValue, Mode=TwoWay}" />
-          </StackPanel>
         </StackPanel>
 
         <Separator Margin="0,4" />
 
         <!-- 未播放配色 -->
         <TextBlock Classes="cardTitle" FontSize="13" Text="未播放配色" />
-        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+        <StackPanel Orientation="Horizontal" Spacing="20" VerticalAlignment="Center">
           <!-- 预览色块 -->
           <Border Width="48" Height="32" CornerRadius="4" BorderBrush="#2BFFFFFF" BorderThickness="1">
             <Border.Background>
@@ -104,11 +99,6 @@
           <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
             <TextBlock Classes="sectionLabel" Text="渐变下" />
             <local:ColorPicker Color="{Binding InactiveGradientBottomColorValue, Mode=TwoWay}" />
-          </StackPanel>
-          
-          <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-            <TextBlock Classes="sectionLabel" Text="描边" />
-            <local:ColorPicker Color="{Binding InactiveStrokeColorValue, Mode=TwoWay}" />
           </StackPanel>
         </StackPanel>
 
