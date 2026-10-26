@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using EasyDesktopLyrics.Models;
