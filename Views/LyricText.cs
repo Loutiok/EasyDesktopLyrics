@@ -16,11 +16,19 @@ namespace EasyDesktopLyrics.Views;
 /// </summary>
 public sealed class LyricText : Control
 {
-    private static readonly (double dx, double dy)[] StrokeOffsets =
+    // 使用 16 向圆周采样，让描边没有任何棱角，极致圆润
+    private static readonly (double dx, double dy)[] StrokeOffsets = GenerateCircularOffsets(16);
+
+    private static (double dx, double dy)[] GenerateCircularOffsets(int count)
     {
-        (0, -1), (0, 1), (-1, 0), (1, 0),
-        (-0.7, -0.7), (0.7, 0.7), (-0.7, 0.7), (0.7, -0.7),
-    };
+        var offsets = new (double dx, double dy)[count];
+        for (var i = 0; i < count; i++)
+        {
+            var angle = 2 * Math.PI * i / count;
+            offsets[i] = (Math.Cos(angle), Math.Sin(angle));
+        }
+        return offsets;
+    }
 
     /// <summary>层角色：整行、已唱段、未唱段或指定字符。</summary>
     public enum ClipSideMode
@@ -354,8 +362,10 @@ public sealed class LyricText : Control
         {
             if (thickness > 0 && _strokeLayout != null)
             {
+                // 强制最小宽度为 1.0。防止用户设置极小值（如 0.1）导致 16 次绘制全挤在同一像素上，产生死灰糊边。
+                var safeThickness = Math.Max(thickness, 1.0);
                 foreach (var (dx, dy) in StrokeOffsets)
-                    _strokeLayout.Draw(context, new Point(dx * thickness, dy * thickness));
+                    _strokeLayout.Draw(context, new Point(dx * safeThickness, dy * safeThickness));
             }
             body.Draw(context, new Point());
         }
@@ -365,8 +375,10 @@ public sealed class LyricText : Control
     {
         if (thickness > 0 && _strokeLayout != null)
         {
+            // 强制最小宽度为 1.0
+            var safeThickness = Math.Max(thickness, 1.0);
             foreach (var (dx, dy) in StrokeOffsets)
-                _strokeLayout.Draw(context, new Point(dx * thickness, dy * thickness));
+                _strokeLayout.Draw(context, new Point(dx * safeThickness, dy * safeThickness));
         }
 
         body.Draw(context, new Point());
