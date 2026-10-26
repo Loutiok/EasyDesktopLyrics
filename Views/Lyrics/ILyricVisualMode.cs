@@ -15,7 +15,7 @@ internal interface ILyricVisualMode
     Grid TranslationHost { get; }
     LyricText ActiveLyric { get; }
     LyricText InactiveLyric { get; }
-    TextBlock TranslationText { get; }
+    LyricText TranslationText { get; }
     LyricText? ActiveGlowLyric { get; }
     LyricText? InactiveGlowLyric { get; }
     IReadOnlyList<LyricText> ActiveGlowLyrics { get; }
