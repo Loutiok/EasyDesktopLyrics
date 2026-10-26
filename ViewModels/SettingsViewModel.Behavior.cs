@@ -74,6 +74,19 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    // ---------- 系统日志 ----------
+    public IReadOnlyList<string> LogLevelOptions { get; } = ["关闭", "正常", "调试"];
+
+    public int LogLevelIndex
+    {
+        get => _settings.Current.LogLevelIndex;
+        set
+        {
+            if (value < 0 || value > 2 || value == _settings.Current.LogLevelIndex) return;
+            _settings.Update(s => s.LogLevelIndex = value);
+        }
+    }
+
     /// <summary>窗口锁定：完全不可动且鼠标穿透；锁定后仅能通过托盘菜单或本设置解锁。</summary>
     public bool IsLocked
     {
