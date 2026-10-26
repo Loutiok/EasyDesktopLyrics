@@ -128,6 +128,10 @@ public sealed partial class ColorPicker : UserControl
     private void OnColorExternallyChanged()
     {
         if (_suppress || _dragging) return;
+        
+        // 🌟 你的神来之笔：防空转拦截器
+        if (Color == _lastPreview) return;
+
         SyncHsvFromColor(Color);
         RefreshUi();
         ColorChanged?.Invoke(Color);
@@ -136,7 +140,13 @@ public sealed partial class ColorPicker : UserControl
     private void SyncHsvFromColor(Color c)
     {
         var (h, s, v) = RgbToHsv(c);
-        if (s > 0.001 && v > 0.001) _h = h;
+        
+        // 🌟 你的神来之笔：色相阈值保护
+        if (s > 0.005 && v > 0.005) 
+        {
+            _h = h;
+        }
+        
         _s = s;
         _v = v;
         _a = c.A / 255.0;
@@ -197,8 +207,7 @@ public sealed partial class ColorPicker : UserControl
         if (_suppress) return;
         if (byte.TryParse(RBox.Text, out var r) && byte.TryParse(GBox.Text, out var g) && byte.TryParse(BBox.Text, out var b))
         {
-            // 防空转拦截器
-            if (Color.R == r && Color.G == g && Color.B == b) return;
+            if (Color.R == r && Color.G == g && Color.B == b) return; // 防空转
 
             _suppress = true;
             Color = Color.FromArgb((byte)Math.Round(_a * 255), r, g, b);
@@ -215,13 +224,12 @@ public sealed partial class ColorPicker : UserControl
         if (_suppress) return;
         if (double.TryParse(HBox.Text, out var h) && double.TryParse(SBox.Text, out var s) && double.TryParse(VBox.Text, out var v))
         {
-            // 防空转拦截器：如果当前颜色的 HSV 取整后，跟输入框一模一样，说明这只是代码刷新UI触发的，直接忽略！
             var currentHsv = RgbToHsv(Color);
             if (Math.Round(currentHsv.H) == Math.Round(h) && 
                 Math.Round(currentHsv.S * 100) == Math.Round(s) && 
                 Math.Round(currentHsv.V * 100) == Math.Round(v))
             {
-                return;
+                return; // 防空转
             }
 
             _suppress = true;
@@ -273,8 +281,7 @@ public sealed partial class ColorPicker : UserControl
         
         if (Color.TryParse(input, out var c))
         {
-            // 防空转拦截器
-            if (Color == c) return;
+            if (Color == c) return; // 防空转
 
             _suppress = true;
             Color = c;
