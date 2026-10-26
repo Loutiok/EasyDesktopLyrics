@@ -369,11 +369,11 @@ public sealed class LyricText : Control
 
     /// <summary>
     /// 基于 FormattedText 获取矢量轮廓（Geometry）进行精准描边。
-    /// 使用基线（Baseline）进行绝对对齐，彻底解决描边偏移与加粗后的阴影感。
+    /// 包含基线绝对对齐与防下沉视觉补偿。
     /// </summary>
     private void DrawVectorStroke(DrawingContext context, TextLayout body, double thickness)
     {
-        if (thickness <= 0 || string.IsNullOrEmpty(Text) || StrokeBrush == null)
+        if (thickness <= 0 || string.IsNullOrEmpty(Text) || StrokeBrush == null || body.TextLines.Count == 0)
             return;
 
         var typeface = new Typeface(FontFamily, FontStyle.Normal, FontWeight, FontStretch.Normal);
@@ -386,36 +386,34 @@ public sealed class LyricText : Control
             FontSize,
             StrokeBrush);
 
-        var textGeometry = formattedText.BuildGeometry(new Point(0, 0));
-        if (textGeometry == null)
-            return;
-
-        // X 轴对齐补偿
+        // X 轴对齐（防止 FormattedText 默认左对齐导致居中失效）
         double offsetX = 0;
         if (TextAlignment == TextAlignment.Center)
             offsetX = (body.Width - formattedText.Width) / 2;
         else if (TextAlignment == TextAlignment.Right)
             offsetX = body.Width - formattedText.Width;
 
-        // Y 轴绝对对齐
-        double offsetY = 0;
-        if (body.TextLines.Count > 0)
-        {
-            offsetY = body.TextLines[0].Baseline - formattedText.Baseline;
-        }
+        // Y 轴基线绝对对齐（借用基线相减，保证 100% 垂直重合）
+        double offsetY = body.TextLines[0].Baseline - formattedText.Baseline;
+        
+        // 视觉补偿：抵消 Pen 画笔在底部多出来的厚度，解决底部下沉问题
+        offsetY -= thickness * 0.15;
 
-        using (context.PushTransform(Matrix.CreateTranslation(offsetX, offsetY)))
-        {
-            // 配置圆润的极细描边画笔
-            var strokePen = new Pen(
-                StrokeBrush, 
-                thickness,
-                lineJoin: PenLineJoin.Round,
-                lineCap: PenLineCap.Round
-            );
+        // 生成几何体
+        var textGeometry = formattedText.BuildGeometry(new Point(offsetX, offsetY));
+        if (textGeometry == null)
+            return;
 
-            context.DrawGeometry(null, strokePen, textGeometry);
-        }
+        // 配置高品质圆润画笔。乘以 0.9 削弱视觉厚度，防止粗体粘连
+        var strokePen = new Pen(
+            StrokeBrush,
+            Math.Max(0.1, thickness * 0.9), 
+            lineJoin: PenLineJoin.Round, 
+            lineCap: PenLineCap.Round 
+        );
+
+        // 5. 绘制描边（真正的平涂正文是由外层的 body.Draw 负责的，这样就完美包住了）
+        context.DrawGeometry(null, strokePen, textGeometry);
     }
 
     protected override Size MeasureOverride(Size availableSize)
