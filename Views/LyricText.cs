@@ -406,7 +406,8 @@ public sealed class LyricText : Control
             // 配置圆润的极细描边画笔
             var strokePen = new Pen(
                 StrokeBrush, 
-                thickness,
+                // 视觉补偿：因为抗锯齿会向外扩散约 0.5px 的虚边，我们稍微缩小实际物理厚度，让视觉厚度更精准
+                Math.Max(0.1, thickness * 0.85), 
                 lineJoin: PenLineJoin.Round,
                 lineCap: PenLineCap.Round
             );
