@@ -34,5 +34,11 @@ internal static class Program
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>()
             .UsePlatformDetect()
-            .LogToTrace();
+            .LogToTrace()
+            // 注入官方字体保护锁，强制收束全局默认字体，防止被桌面歌词特殊字体劫持进程
+            .With(new FontManagerOptions
+            {
+                DefaultFamilyName = "Microsoft YaHei, Segoe UI, Arial"
+            });
+
 }
