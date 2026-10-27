@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Threading;
 using EasyDesktopLyrics.Infrastructure;
 using EasyDesktopLyrics.Models;
 using EasyDesktopLyrics.Services;
@@ -24,9 +25,7 @@ public sealed class PlayerRuleItem : ObservableObject
     }
 
     public string Aumid { get; }
-
     public string DisplayName { get; set; }
-
     public bool IsEnabled
     {
         get => _isEnabled;
@@ -47,9 +46,7 @@ public sealed class LyricSourceItem : ObservableObject
     }
 
     public string SourceId { get; }
-
     public string DisplayName { get; set; }
-
     public bool IsEnabled
     {
         get => _isEnabled;
@@ -71,9 +68,6 @@ public sealed record SearchResultItem(string ProviderId, string ProviderName, st
 /// <summary>位置预设九宫格条目。</summary>
 public sealed record PresetOption(PositionPreset Preset, string Label, int Col, int Row);
 
-/// <summary>
-/// 设置窗口视图模型（按功能分区拆分为 partial：Appearance / Behavior / Fix）。
-/// </summary>
 public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 {
     private static readonly string[] SettingProps =
@@ -93,7 +87,7 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         nameof(LuminousGlowStrengthVal), nameof(LuminousLongNoteThresholdVal), nameof(LuminousReleaseVal),
         nameof(ShadowBlurVal), nameof(ShadowOffsetYVal),
         nameof(TransFontSizeVal), nameof(LineSpacingVal), nameof(TextOpacity), nameof(MaxWidth),
-                nameof(ShowTranslation), nameof(HideWhenPaused), nameof(ShowTitleWhenNoLyric), nameof(AutoStartEnabled), nameof(IsLocked), nameof(LogLevelIndex),
+        nameof(ShowTranslation), nameof(HideWhenPaused), nameof(ShowTitleWhenNoLyric), nameof(AutoStartEnabled), nameof(IsLocked), nameof(LogLevelIndex),
         nameof(LineTransitionEnabled), nameof(LineTransitionTypeIndex), nameof(LineTransitionSpeedVal),
         nameof(LineTransitionEasingIndex), nameof(LineTransitionDirectionIndex), nameof(LineTransitionDistanceVal),
         nameof(LineTransitionScaleVal), nameof(ShowSlideOptions), nameof(ShowScaleOptions),
@@ -144,13 +138,11 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
 
     private TrackInfo? _lastTrack;
 
-    /// <summary>由 App 层注入，用于快捷定位。</summary>
+    // 🌟 新增：UI 初始化保护锁
+    private bool _isInitializing = true;
+
     public Action<PositionPreset>? SnapToPreset { get; set; }
-
-    /// <summary>由 App 层注入，用于直接定位到像素坐标。</summary>
     public Action<double, double>? SetAnchor { get; set; }
-
-    /// <summary>由 App 层设置，主屏工作区（物理像素）。</summary>
     public PixelRect ScreenArea { get; set; }
 
     public SettingsViewModel(
@@ -196,6 +188,12 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         RefreshLyricSources();
         SyncFromTrack(force: true);
         RefreshUserVisualPresets();
+
+        // 🌟 延迟一帧，等 UI 控件全部完成首次绑定并赋值，再解开保护锁
+        Dispatcher.UIThread.Post(() =>
+        {
+            _isInitializing = false;
+        }, DispatcherPriority.Loaded);
     }
 
     // ---------- 导航 ----------
@@ -287,7 +285,6 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
                 _settings.Update(s => { s.AnchorX = ax; s.AnchorY = ay; });
                 SnapToPreset?.Invoke(preset);
             }
-            // value==9 (自定义): 不做任何操作, 由滑块驱动
             Raise(nameof(PositionXPct));
             Raise(nameof(PositionYPct));
             _updatingPosition = false;
@@ -304,6 +301,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         }
         set
         {
+            // 🌟 增加保护锁
+            if (_isInitializing) return;
             if (_updatingPosition) return;
             var a = ScreenArea;
             if (a.Width <= 0) return;
@@ -327,6 +326,8 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         }
         set
         {
+            // 🌟 增加保护锁
+            if (_isInitializing) return;
             if (_updatingPosition) return;
             var a = ScreenArea;
             if (a.Height <= 0) return;
