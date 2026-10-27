@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Media;
 using Avalonia.Win32;
 using EasyDesktopLyrics.Infrastructure;
 
