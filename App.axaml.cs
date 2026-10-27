@@ -52,12 +52,7 @@ public sealed class App : Application
         _orchestrator = new LyricsOrchestrator(_smtcService, _settingsService, _lyricsCache, _overridesStore, providers);
 
         // ---- 托盘 ----
-        var overlayVm = new OverlayViewModel(_settingsService, _orchestrator, _smtcService);
-        _overlay = new LyricsOverlayWindow(overlayVm, _settingsService);
-
-        _overlay.AnchorChanged += (x, y) =>
-            _settingsService.Update(s => { s.AnchorX = x; s.AnchorY = y; });
-
+        // 注意：这里将托盘的创建提前到歌词窗口之前，防止歌词窗口的自定义字体渲染污染原生菜单
         var trayVisible = new NativeMenuItem("显示歌词")
         {
             ToggleType = MenuItemToggleType.CheckBox,
@@ -88,18 +83,6 @@ public sealed class App : Application
         trayExit.Click += (_, _) => Cleanup();
         trayMenu.Add(trayExit);
 
-        _settingsService.Changed += () =>
-        {
-            Log.CurrentLevel = (LogLevel)_settingsService.Current.LogLevelIndex;
-            AutoStart.Sync(_settingsService.Current.AutoStart);
-            _smtcService.SetPreferredSession(_settingsService.Current.LockedSessionAumid);
-            _smtcService.SetPlayerRules(_settingsService.Current.PlayerPriorities);
-            _overlay?.UpdateVisibility();
-            _overlay?.SetLocked(_settingsService.Current.Locked);
-            trayVisible.IsChecked = _settingsService.Current.LyricsVisible;
-            trayLock.IsChecked = _settingsService.Current.Locked;
-        };
-
         var icon = LoadWindowIcon("Assets/app.png");
         var trayIcon = new TrayIcon
         {
@@ -110,6 +93,30 @@ public sealed class App : Application
         trayIcon.Clicked += (_, _) => OpenSettings();
 
         TrayIcon.SetIcons(this, [trayIcon]);
+
+        // ---- 设置变更事件 ----
+        _settingsService.Changed += () =>
+        {
+            Log.CurrentLevel = (LogLevel)_settingsService.Current.LogLevelIndex;
+            AutoStart.Sync(_settingsService.Current.AutoStart);
+            _smtcService.SetPreferredSession(_settingsService.Current.LockedSessionAumid);
+            _smtcService.SetPlayerRules(_settingsService.Current.PlayerPriorities);
+            
+            // 这里使用了 ?. 安全调用，即使 _overlay 尚未创建也不会报错
+            _overlay?.UpdateVisibility();
+            _overlay?.SetLocked(_settingsService.Current.Locked);
+            
+            trayVisible.IsChecked = _settingsService.Current.LyricsVisible;
+            trayLock.IsChecked = _settingsService.Current.Locked;
+        };
+
+        // ---- 初始化歌词窗口（移至托盘之后） ----
+        var overlayVm = new OverlayViewModel(_settingsService, _orchestrator, _smtcService);
+        _overlay = new LyricsOverlayWindow(overlayVm, _settingsService);
+
+        // 绑定锚点改变事件
+        _overlay.AnchorChanged += (x, y) =>
+            _settingsService.Update(s => { s.AnchorX = x; s.AnchorY = y; });
 
         _overlay.Show();
 
