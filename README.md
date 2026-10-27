@@ -20,6 +20,7 @@ EasyDesktopLyrics 通过 [SMTC](https://learn.microsoft.com/windows/uwp/audio-vi
 
 
 ## 分支修改内容
+- 修复歌词窗口会在Alt + Tab出现的问题
 - 优化歌词描边绘制
 - 禁用 ClearType 亚像素渲染，使用灰度抗锯齿
 - 令本地歌词支持翻译行
