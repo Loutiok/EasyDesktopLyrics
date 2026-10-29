@@ -69,7 +69,7 @@ public static partial class LrcParser
 
             // 2. 方括号逐字格式（如 [00:01.405]悪[00:01.933]戯[00:02.431]...[00:04.773]）
             // 条件：包含多个方括号标签，且不包含尖括号逐字标签
-            if (matches.Count > 1 && !line.Contains('<'))
+            if (matches.Count > 2 && !line.Contains('<'))
             {
                 var bracketWords = ParseBracketWordsInLine(line, matches);
                 if (bracketWords.Count > 0)
