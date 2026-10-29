@@ -178,47 +178,41 @@ public sealed partial class LyricsOrchestrator
 
     private void OnPlaybackChanged(PlaybackSnapshot snapshot)
     {
-        // 切歌后 2 秒内，SMTC 可能连续推送多个"旧曲残留"事件：
-        // Duration 已更新为新曲，但 Position 还是旧曲的，且可能推多个。
-        // 只拦第一个不够（后续会被接受 → 跳到旧位置 → 闪过其他歌词）。
-        // 因此窗口内的所有事件都不采用 Position，只更新 IsPlaying，
-        // 位置由挂钟从 TrackChanged 时 Reset 的 0 稳步驱动。
+        // 如果切歌后处于等待稳定期，且此时上报的位置明显还是旧曲超长位置（比如 > 5秒），
+        // 视为旧曲残留直接丢弃；若已经回归曲首合理范围，则直接放行并解除等待
         if (_waitingForFreshPosition)
         {
             var elapsed = DateTimeOffset.UtcNow - _trackChangedAt;
-            if (elapsed < TimeSpan.FromSeconds(2))
+            if (elapsed < TimeSpan.FromMilliseconds(1200))
             {
-                Log.Info($"playback zeroed (settling after track change): " +
-                         $"elapsed={elapsed.TotalMilliseconds:F0}ms " +
-                         $"pos={snapshot.Position.TotalSeconds:F2}s " +
-                         $"dur={snapshot.Duration.TotalSeconds:F2}s");
-                // 只更新 IsPlaying（PlaybackClock 走降级分支），不采用 Position
-                snapshot = snapshot with { PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
-                // 若 PlaybackSnapshot 不是 record 导致 with 不可用，改为：
-                // snapshot = new PlaybackSnapshot
-                // {
-                //     Position = snapshot.Position,
-                //     PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1),
-                //     Duration = snapshot.Duration,
-                //     Rate = snapshot.Rate,
-                //     IsPlaying = snapshot.IsPlaying,
-                // };
+                // 旧曲残留通常 Duration 或 Position 远大于正常曲首
+                if (snapshot.Position > TimeSpan.FromSeconds(3))
+                {
+                    // 仅忽略旧曲残留大位置，只更新播放状态
+                    snapshot = snapshot with { PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
+                }
+                else
+                {
+                    // 已经是合法的曲首时间，提前解除等待
+                    _waitingForFreshPosition = false;
+                }
             }
             else
             {
-                Log.Info($"playback accepted (settled): pos={snapshot.Position.TotalSeconds:F2}s " +
-                         $"elapsed={elapsed.TotalSeconds:F2}s");
                 _waitingForFreshPosition = false;
             }
         }
-
+    
         var posBefore = _clock.Estimate();
         _clock.Sync(snapshot);
         UpdateTimer();
+    
         var jump = _clock.Estimate() - posBefore;
-        var seekJumped = jump > TimeSpan.FromSeconds(2) || jump < -TimeSpan.FromSeconds(2);
+        // 只要位置发生超过 500ms 的非自然跳变（包括小幅度 Seek），都视为用户 Seek，抑制过渡动画并强制刷新
+        var seekJumped = jump > TimeSpan.FromMilliseconds(500) || jump < -TimeSpan.FromMilliseconds(500);
         if (seekJumped)
             _suppressLineTransition = true;
+    
         Tick(forceRaise: seekJumped);
         Raise();
     }
