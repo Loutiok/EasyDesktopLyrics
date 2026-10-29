@@ -30,8 +30,8 @@ public sealed class PlaybackClock
             var incomingPositionNow = s.Position + age * _rate;
             var backwardDelta = estimatedNow - incomingPositionNow;
 
-            // 缩短到 1.2 秒：足够消化切歌瞬间的旧事件倾倒，又不会占用正常交互时长
-            var isWithinTrackChangeWindow = DateTimeOffset.UtcNow - _lastResetAt < TimeSpan.FromMilliseconds(1200);
+            // 缩短到 1.5 秒：足够消化切歌瞬间的旧事件倾倒，又不会占用正常交互时长
+            var isWithinTrackChangeWindow = DateTimeOffset.UtcNow - _lastResetAt < TimeSpan.FromMilliseconds(1500);
             
             if (isWithinTrackChangeWindow 
                 && IsPlaying 
@@ -39,11 +39,11 @@ public sealed class PlaybackClock
                 && backwardDelta > TimeSpan.FromMilliseconds(150) 
                 && backwardDelta < TimeSpan.FromMilliseconds(1500))
             {
-                // 仅在切歌刚发生的 1.2 秒内吃掉滞后小抖动
+                // 仅在切歌刚发生的 1.5 秒内吃掉滞后小抖动
             }
             else
             {
-                // 其余所有情况：包括 1.2 秒后、或者往回拖拽超过 1.5 秒的大跳转，全部秒级响应
+                // 其余所有情况：包括 1.5 秒后、或者往回拖拽超过 1.5 秒的大跳转，全部秒级响应
                 _basePos = s.Position;
                 _baseAt = s.PositionAt;
             }
