@@ -1311,10 +1311,14 @@ public sealed partial class LyricsOverlayWindow : Window
         if (_hwnd != IntPtr.Zero)
             Win32.AssertTopmost(_hwnd);
         SetLocked(_settingsService.Current.Locked);
-        Win32.HideFromAltTab(_hwnd);   // ← 新增：从 Alt+Tab 列表隐藏
+        Win32.HideFromAltTab(_hwnd); // AltTab窗口下隐藏
         UpdatePlayPauseIcon();
-        ApplyAnchor();
+        
+        // 调整顺序：先更新可见性，触发布局量测
         UpdateVisibility();
+        // 再初始化锚点
+        ApplyAnchor();
+        
         LogSizeDiagnostics();
         ScheduleSizeDiagnostics();
     }
@@ -1506,19 +1510,35 @@ public sealed partial class LyricsOverlayWindow : Window
     /// </summary>
     private void ScheduleInitialAnchorApply()
     {
-        if (ClientSize.Height > InitialHeightThreshold || ClientSize.Width > 2000)
+        // 如果高度过小（只有几像素的未布局状态）或处于瞬时巨大值，都不要安排
+        if (ClientSize.Height < 10 || ClientSize.Height > InitialHeightThreshold || ClientSize.Width > 2000)
             return;
-        _initialAnchorDebouncer.Schedule(TimeSpan.FromMilliseconds(200), ApplyInitialAnchor);
+
+        _initialAnchorDebouncer.Schedule(TimeSpan.FromMilliseconds(150), ApplyInitialAnchor);
     }
 
-    /// <summary>初始定位：以当前（稳定后的）尺寸按锚点居中放置窗口，并同步锚点。</summary>
+    /// <summary>初始定位：以当前尺寸按已有锚点放置窗口，绝不覆写用户设定的 Anchor。</summary>
     private void ApplyInitialAnchor()
     {
         if (_firstSizeApplied)
             return;
+
+        // 如果高度还没达到基本内容期望高度，或者还处于隐藏不可见状态，推迟定位，避免用残缺尺寸定位
+        if (ClientSize.Height < 20 || !IsVisible)
+        {
+            _initialAnchorDebouncer.Schedule(TimeSpan.FromMilliseconds(100), ApplyInitialAnchor);
+            return;
+        }
+
         _firstSizeApplied = true;
         RepositionToAnchor();
-        WriteAnchorFromPosition();
+        
+        // 移除：WriteAnchorFromPosition(); 
+        // 只有用户鼠标拖拽结束（OnPointerReleased）时才应该写回 Anchor！
+        
+        // 记录正确的底边基准
+        var s = Screens.ScreenFromWindow(this)?.Scaling ?? 1.0;
+        _lastGrowBottom = Position.Y + (int)Math.Round(ClientSize.Height * s);
     }
 
     private void RepositionToAnchor()
