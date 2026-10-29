@@ -226,10 +226,25 @@ public sealed partial class SettingsViewModel : ObservableObject, IDisposable
         set
         {
             if (Set(ref _selectedNav, value))
+            {
                 RaiseMany([nameof(VisualPresetNavSelected), nameof(PlayNavSelected), nameof(AppearanceNavSelected),
                            nameof(EffectsNavSelected), nameof(CoverNavSelected),
                            nameof(DisplayNavSelected), nameof(FixNavSelected),
                            nameof(BackgroundFxNavSelected)]);
+
+                // 切换到“校正”页面时，自动搜索
+                if (value == 6)
+                {
+                    var t = _orchestrator.Track;
+                    if (t != null && string.IsNullOrWhiteSpace(SearchKeyword))
+                    {
+                        _searchKeyword = LyricsMatcher.BuildKeyword(t);
+                        _keywordDirty = false;
+                        Raise(nameof(SearchKeyword));
+                    }
+                    _ = RunSearchAsync();
+                }
+            }
         }
     }
 
