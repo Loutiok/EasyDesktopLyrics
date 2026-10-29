@@ -404,8 +404,20 @@ public sealed partial class LyricsOrchestrator
         if (doc == null)
             return null;
 
+        // 1. 如果有单独的逐字源（如网易云 yrc），优先使用
         if (!string.IsNullOrWhiteSpace(wordLrc))
+        {
             doc = MergeWordLines(doc, LrcParser.ParseWordLines(wordLrc));
+        }
+        // 2. 如果没有独立 wordLrc，但主歌词 lrc 本身就包含内嵌逐字标签（方括号/尖括号逐字 LRC）
+        else if (!string.IsNullOrWhiteSpace(lrc))
+        {
+            var localWordLines = LrcParser.ParseWordLines(lrc);
+            if (localWordLines.Count > 0)
+            {
+                doc = MergeWordLines(doc, localWordLines);
+            }
+        }
 
         var texts = doc.Lines.Select(l => l.Text).Where(t => t.Length > 0).ToList();
         if (texts.Count == 0)
