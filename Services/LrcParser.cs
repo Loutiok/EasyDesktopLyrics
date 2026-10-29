@@ -51,7 +51,7 @@ public static partial class LrcParser
             if (line.Length == 0)
                 continue;
 
-            // 1. yrc 格式（行头 [ms,ms]）
+            // yrc 格式（行头 [ms,ms]）
             var ym = YrcLineTag().Match(line);
             if (ym.Success && ym.Index == 0
                 && long.TryParse(ym.Groups[1].Value, out var yStart)
@@ -59,7 +59,21 @@ public static partial class LrcParser
             {
                 var yrcWords = ParseYrcWordsInLine(ym.Groups[3].Value);
                 if (yrcWords.Count > 0)
-                    result.Add(new LyricWordLine(yStart, yrcWords, PositiveDuration(yDuration)));
+                {
+                    var lastWord = yrcWords[^1];
+                    // 优先取最后一个字的绝对结束时刻，若为空则给 500ms 兜底
+                    long lastWordEnd = lastWord.EndMs ?? (lastWord.TimeMs + (lastWord.DurationMs ?? 500));
+                    long fallbackEnd = yDuration > 0 ? yStart + yDuration : lastWordEnd;
+                    
+                    // 取两者最大值，防止最后一个字尾音被截断
+                    long realEnd = Math.Max(lastWordEnd, fallbackEnd);
+
+                    // 强制保底防畸形
+                    if (realEnd <= yStart) 
+                        realEnd = yStart + 1000;
+
+                    result.Add(new LyricWordLine(yStart, yrcWords, realEnd));
+                }
                 continue;
             }
 
@@ -67,22 +81,31 @@ public static partial class LrcParser
             if (matches.Count == 0)
                 continue;
 
-            // 2. 方括号逐字格式（如 [00:01.405]悪[00:01.933]戯[00:02.431]...[00:04.773]）
-            // 条件：包含多个方括号标签，且不包含尖括号逐字标签
+            // 方括号逐字格式
             if (matches.Count > 2 && !line.Contains('<'))
             {
                 var bracketWords = ParseBracketWordsInLine(line, matches);
                 if (bracketWords.Count > 0)
                 {
                     var lineStart = ParseStamp(matches[0]);
-                    var lineEnd = ParseStamp(matches[^1]);
-                    var duration = lineEnd > lineStart ? (long?)(lineEnd - lineStart) : null;
-                    result.Add(new LyricWordLine(lineStart, bracketWords, duration));
+                    
+                    // 直接根据最后一个字的实际结束时间算！
+                    // 因为 ParseBracketWordsInLine 里，如果存在结尾空白标签，最后一个字的 duration 已经正确包含了它。
+                    // 如果不存在结尾标签，也会走默认兜底时长。
+                    var lastWord = bracketWords[^1];
+                    long lineEnd = lastWord.TimeMs + (lastWord.DurationMs ?? 500);
+                    
+                    // 如果尾标存在并且时间比这个晚，用尾标时间兜底
+                    var lastStamp = ParseStamp(matches[^1]);
+                    if (lastStamp > lineEnd)
+                        lineEnd = lastStamp;
+
+                    result.Add(new LyricWordLine(lineStart, bracketWords, lineEnd));
                     continue;
                 }
             }
 
-            // 3. 增强 LRC / klyric 格式（行首 [mm:ss.xx] 时间标签 + <ts>字）
+            // 增强 LRC / klyric 格式（行首 [mm:ss.xx] 时间标签 + <ts>字）
             var end = 0;
             var stamps = new List<long>();
             foreach (Match m in matches)
@@ -120,20 +143,25 @@ public static partial class LrcParser
             var textEnd = (i + 1 < matches.Count) ? matches[i + 1].Index : line.Length;
             var text = line[textStart..textEnd];
 
-            // 依据下个标签计算当前字时长
+            if (string.IsNullOrEmpty(text))
+                continue;
+
+            // 计算当前字持续时间
             long? duration = null;
             if (i + 1 < matches.Count)
             {
                 var nextTime = ParseStamp(matches[i + 1]);
-                if (nextTime >= curTime)
+                if (nextTime > curTime)
                     duration = nextTime - curTime;
             }
 
-            // 行尾用于标记闭合的时间戳后面往往为空字符串，予以跳过
-            if (!string.IsNullOrEmpty(text))
+            // 若没有下一个时间戳（无尾标）或时间差为 0，按字符数给一个保底时长
+            if (duration == null || duration <= 0)
             {
-                words.Add(new LyricWord(curTime, text, duration));
+                duration = Math.Max(200, text.Length * 250);
             }
+
+            words.Add(new LyricWord(curTime, text, duration));
         }
 
         return words;
