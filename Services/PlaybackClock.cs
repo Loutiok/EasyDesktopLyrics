@@ -12,6 +12,7 @@ public sealed class PlaybackClock
     private DateTimeOffset _baseAt = DateTimeOffset.UtcNow;
     private double _rate = 1.0;
     private TimeSpan _duration;
+    private DateTimeOffset _lastResetAt = DateTimeOffset.MinValue;
 
     public bool IsPlaying { get; private set; }
 
@@ -20,25 +21,38 @@ public sealed class PlaybackClock
         _duration = s.Duration;
         _rate = s.Rate <= 0 ? 1.0 : s.Rate;
 
-        // LastUpdatedTime 可能过期或为 0，做合法性校验后再采用
         var age = DateTimeOffset.UtcNow - s.PositionAt;
         var timelineUsable = age > TimeSpan.Zero && age < TimeSpan.FromSeconds(30);
 
         if (timelineUsable)
         {
-            // 时间线有效：以 SMTC 上报为准重置插值基准
-            _basePos = s.Position;
-            _baseAt = s.PositionAt;
+            var estimatedNow = Estimate();
+            var incomingPositionNow = s.Position + age * _rate;
+            var backwardDelta = estimatedNow - incomingPositionNow;
+
+            // 缩短到 1.2 秒：足够消化切歌瞬间的旧事件倾倒，又不会占用正常交互时长
+            var isWithinTrackChangeWindow = DateTimeOffset.UtcNow - _lastResetAt < TimeSpan.FromMilliseconds(1200);
+            
+            if (isWithinTrackChangeWindow 
+                && IsPlaying 
+                && s.IsPlaying 
+                && backwardDelta > TimeSpan.FromMilliseconds(150) 
+                && backwardDelta < TimeSpan.FromMilliseconds(1500))
+            {
+                // 仅在切歌刚发生的 1.2 秒内吃掉滞后小抖动
+            }
+            else
+            {
+                // 其余所有情况：包括 1.2 秒后、或者往回拖拽超过 1.5 秒的大跳转，全部秒级响应
+                _basePos = s.Position;
+                _baseAt = s.PositionAt;
+            }
         }
         else if (IsPlaying != s.IsPlaying)
         {
-            // 时间线不可用（如网易云 PC 版恒报 Position=0 / LastUpdatedTime 无效）：
-            // 单调降级时钟，仅在播放/暂停状态边界重置基准，其余时间由挂钟驱动，
-            // 避免高频事件把进度反复重置回 0
             _basePos = Estimate();
             _baseAt = DateTimeOffset.UtcNow;
         }
-        // 时间线不可用且状态未变：保持原基准，挂钟继续驱动
 
         IsPlaying = s.IsPlaying;
     }
@@ -50,6 +64,7 @@ public sealed class PlaybackClock
         _rate = 1.0;
         _duration = TimeSpan.Zero;
         IsPlaying = false;
+        _lastResetAt = DateTimeOffset.UtcNow; // 标记切歌时刻
     }
 
     public TimeSpan Estimate()
