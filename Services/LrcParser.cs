@@ -4,7 +4,8 @@ using EasyDesktopLyrics.Models;
 namespace EasyDesktopLyrics.Services;
 
 /// <summary>
-/// LRC 解析：行级时间戳、一行多标签、[offset:] 标签；翻译按相同时间戳（±20ms）合并。
+/// LRC 解析：行级时间戳、一行多标签、[offset:] 标签；翻译按相同时间戳（±20ms）合并；
+/// 逐字歌词支持：yrc、尖括号增强 LRC (<ts>字)、方括号逐字 LRC ([ts]字[ts]字)。
 /// </summary>
 public static partial class LrcParser
 {
@@ -32,9 +33,10 @@ public static partial class LrcParser
     private static partial Regex OffsetTag();
 
     /// <summary>
-    /// 解析逐字歌词：支持两种格式（自动识别）——
-    /// 1. 增强 LRC / klyric：行首 [mm:ss.xx] + &lt;ts&gt;字 序列；
-    /// 2. yrc：行头 [开始ms,持续ms] + (字开始ms,持续ms,0)字 序列（含 JSON 元数据行，跳过）。
+    /// 解析逐字歌词：支持三种格式（自动识别）——
+    /// 1. yrc：行头 [开始ms,持续ms] + (字开始ms,持续ms,0)字 序列；
+    /// 2. 方括号逐字 LRC：行内穿插 [mm:ss.xx]字[mm:ss.xx]字 序列；
+    /// 3. 尖括号增强 LRC / klyric：行首 [mm:ss.xx] + &lt;ts&gt;字 序列。
     /// 返回按行时间升序的逐字行，并保留源中存在的行/字持续时间。
     /// </summary>
     public static IReadOnlyList<LyricWordLine> ParseWordLines(string? wordLrc)
@@ -49,7 +51,7 @@ public static partial class LrcParser
             if (line.Length == 0)
                 continue;
 
-            // yrc 格式（行头 [ms,ms]）
+            // 1. yrc 格式（行头 [ms,ms]）
             var ym = YrcLineTag().Match(line);
             if (ym.Success && ym.Index == 0
                 && long.TryParse(ym.Groups[1].Value, out var yStart)
@@ -61,10 +63,26 @@ public static partial class LrcParser
                 continue;
             }
 
-            // 增强 LRC / klyric 格式（行首 [mm:ss.xx] 时间标签 + <ts>字）
             var matches = TimeTag().Matches(line);
             if (matches.Count == 0)
                 continue;
+
+            // 2. 方括号逐字格式（如 [00:01.405]悪[00:01.933]戯[00:02.431]...[00:04.773]）
+            // 条件：包含多个方括号标签，且不包含尖括号逐字标签
+            if (matches.Count > 1 && !line.Contains('<'))
+            {
+                var bracketWords = ParseBracketWordsInLine(line, matches);
+                if (bracketWords.Count > 0)
+                {
+                    var lineStart = ParseStamp(matches[0]);
+                    var lineEnd = ParseStamp(matches[^1]);
+                    var duration = lineEnd > lineStart ? (long?)(lineEnd - lineStart) : null;
+                    result.Add(new LyricWordLine(lineStart, bracketWords, duration));
+                    continue;
+                }
+            }
+
+            // 3. 增强 LRC / klyric 格式（行首 [mm:ss.xx] 时间标签 + <ts>字）
             var end = 0;
             var stamps = new List<long>();
             foreach (Match m in matches)
@@ -86,6 +104,41 @@ public static partial class LrcParser
         return result.OrderBy(x => x.TimeMs).ToList();
     }
 
+    /// <summary>
+    /// 解析方括号逐字行：[开始ts]字[下个ts]字...[结束ts]
+    /// </summary>
+    private static List<LyricWord> ParseBracketWordsInLine(string line, MatchCollection matches)
+    {
+        var words = new List<LyricWord>();
+
+        for (var i = 0; i < matches.Count; i++)
+        {
+            var curMatch = matches[i];
+            var curTime = ParseStamp(curMatch);
+
+            var textStart = curMatch.Index + curMatch.Length;
+            var textEnd = (i + 1 < matches.Count) ? matches[i + 1].Index : line.Length;
+            var text = line[textStart..textEnd];
+
+            // 依据下个标签计算当前字时长
+            long? duration = null;
+            if (i + 1 < matches.Count)
+            {
+                var nextTime = ParseStamp(matches[i + 1]);
+                if (nextTime >= curTime)
+                    duration = nextTime - curTime;
+            }
+
+            // 行尾用于标记闭合的时间戳后面往往为空字符串，予以跳过
+            if (!string.IsNullOrEmpty(text))
+            {
+                words.Add(new LyricWord(curTime, text, duration));
+            }
+        }
+
+        return words;
+    }
+
     /// <summary>yrc 行内字序列：(开始ms,持续ms,未知)字 …。</summary>
     private static List<LyricWord> ParseYrcWordsInLine(string content)
     {
@@ -104,7 +157,6 @@ public static partial class LrcParser
             var text = content[textEnd..(textEnd + textLen)].Trim();
             if (text.Length > 0)
                 words.Add(new LyricWord(start, text, PositiveDuration(duration)));
-            // 下一个 tag 起点（tag 后跟随字文本，须跳过）
             index = next.Success ? next.Index : content.Length;
         }
         return words;
@@ -176,8 +228,7 @@ public static partial class LrcParser
         if (main.Count == 0)
             return null;
 
-        // 过滤"瞬时空行"：空文本行仅在距下一句非空歌词足够久（真实间奏）时才保留；
-        // 紧贴下一句的空行（部分网易云 LRC 的占位伪影）会让 FindIndex 选中空行 → 闪现省略号。
+        // 过滤"瞬时空行"：空文本行仅在距下一句非空歌词足够久（真实间奏）才保留
         var filtered = new List<(long TimeMs, string Text)>(main.Count);
         for (var i = 0; i < main.Count; i++)
         {
@@ -275,31 +326,23 @@ public static partial class LrcParser
             {
                 if (m.Index != end)
                     break;
-                var min = long.Parse(m.Groups[1].Value);
-                var sec = long.Parse(m.Groups[2].Value);
-                long frac = 0;
-                if (m.Groups[3].Success)
-                {
-                    var f = m.Groups[3].Value;
-                    frac = f.Length switch
-                    {
-                        1 => int.Parse(f) * 100,
-                        2 => int.Parse(f) * 10,
-                        _ => int.Parse(f[..3]),
-                    };
-                }
-                stamps.Add(min * 60_000 + sec * 1000 + frac);
+                stamps.Add(ParseStamp(m));
                 end = m.Index + m.Length;
             }
             if (stamps.Count == 0)
                 continue;
 
-            var content = line[end..].Trim();
+            var rawContent = line[end..];
+
+            // 清洗行内残余的逐字时间标签（去除 <ts> 以及残余的 [ts]），还原为纯净的行歌词
+            var plainContent = TimeTag().Replace(rawContent, "");
+            plainContent = WordTag().Replace(plainContent, "").Trim();
+
             foreach (var s in stamps)
             {
                 // LRC 约定：offset 正值 = 歌词整体提前
                 var effective = Math.Max(0, s - offset);
-                result.Add((effective, content));
+                result.Add((effective, plainContent));
             }
         }
 
