@@ -132,6 +132,12 @@ public sealed partial class SettingsViewModel
                 Raise(nameof(SearchKeyword));
             }
             SongOffsetMs = _overrides.Get(LyricsMatcher.TrackKey(t))?.OffsetMs ?? 0;
+
+            // 如果处于校正页面，且切歌了，自动触发一次极速搜索
+            if (_selectedNav == 6 && !_isInitializing)
+            {
+                _ = RunSearchAsync();
+            }
         }
     }
 
@@ -145,21 +151,53 @@ public sealed partial class SettingsViewModel
         }
 
         IsBusy = true;
-        StatusText = "搜索中…";
+        StatusText = "正在搜索…";
         SearchResults.Clear();
         Raise(nameof(HasSearchResults));
+        
         try
         {
             var track = _orchestrator.Track;
-            var items = new List<SearchResultItem>();
-            foreach (var provider in _providers)
+
+            // 先只搜本地源，瞬间出结果
+            var localProvider = _providers.FirstOrDefault(p => p.Id == "local");
+            if (localProvider != null)
+            {
+                try
+                {
+                    var found = await localProvider.SearchAsync(keyword, CancellationToken.None);
+                    var items = found.Select(s => new SearchResultItem(
+                        localProvider.Id, localProvider.DisplayName, s.SongId, s.Title, s.Artist, s.DurationMs,
+                        track != null ? LyricsMatcher.Score(track, s) : 0)).ToList();
+                    
+                    foreach (var item in items.OrderByDescending(i => i.Score))
+                        SearchResults.Add(item);
+                    
+                    Raise(nameof(HasSearchResults));
+                    if (SearchResults.Count > 0)
+                        StatusText = "已显示本地结果，正在请求网络…";
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"manual search ({localProvider.Id})", ex);
+                }
+            }
+
+            // 后台追加：然后再慢慢等网络，结果依次追加进列表
+            var netProviders = _providers.Where(p => p.Id != "local");
+            foreach (var provider in netProviders)
             {
                 try
                 {
                     var found = await provider.SearchAsync(keyword, CancellationToken.None);
-                    items.AddRange(found.Select(s => new SearchResultItem(
+                    var items = found.Select(s => new SearchResultItem(
                         provider.Id, provider.DisplayName, s.SongId, s.Title, s.Artist, s.DurationMs,
-                        track != null ? LyricsMatcher.Score(track, s) : 0)));
+                        track != null ? LyricsMatcher.Score(track, s) : 0)).ToList();
+                    
+                    foreach (var item in items.OrderByDescending(i => i.Score))
+                        SearchResults.Add(item);
+                    
+                    Raise(nameof(HasSearchResults));
                 }
                 catch (Exception ex)
                 {
@@ -167,10 +205,6 @@ public sealed partial class SettingsViewModel
                 }
             }
 
-            foreach (var item in items.OrderByDescending(i => i.Score))
-                SearchResults.Add(item);
-
-            Raise(nameof(HasSearchResults));
             StatusText = SearchResults.Count == 0 ? "未搜索到结果。" : $"共 {SearchResults.Count} 条结果，选中后点击“应用所选歌词”。";
         }
         finally
