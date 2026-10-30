@@ -140,8 +140,6 @@ public sealed partial class LyricsOrchestrator
 
     private void OnTrackChanged(TrackInfo? t)
     {
-        // 切歌后到新歌词就绪前，SMTC 可能推送旧曲位置（PositionAt 新鲜但位置属于旧曲）。
-        // 置位后 OnPlaybackChanged 会让 PlaybackClock 只更新 IsPlaying，不采用位置。
         _waitingForFreshPosition = true;
         _trackChangedAt = DateTimeOffset.UtcNow;
 
@@ -149,27 +147,34 @@ public sealed partial class LyricsOrchestrator
         _cts = null;
         _suppressLineTransition = true;
         Track = t;
+        
+        // 彻底抹除所有歌词文档与当前行索引
         _doc = null;
         _hasWords = false;
         _lineIndex = -1;
         _songOffsetMs = 0;
         _timingFrame = LyricTimingFrame.None;
+        
+        // 将当前歌词强制清空
         CurrentMain = "";
         CurrentTrans = "";
         _clock.Reset();
 
         if (t == null)
         {
-            _waitingForFreshPosition = false; // 无会话，不再等待位置
+            _waitingForFreshPosition = false;
             Phase = LyricsPhase.NoSession;
             UpdateTimer();
             Raise();
             return;
         }
 
+        // 切换到 Resolving 相位并立即强制广播，让 UI 瞬间抹除旧歌词
         Phase = LyricsPhase.Resolving;
         UpdateTimer();
         Raise();
+        // 显式触发一次行变化通知（传 true 抑制任何行切换过渡动画）
+        LineChanged?.Invoke(true);
 
         var cts = new CancellationTokenSource();
         _cts = cts;
@@ -611,7 +616,8 @@ public sealed partial class LyricsOrchestrator
 
     private void Tick(bool forceRaise, bool suppressTransition = false)
     {
-        if (_doc == null)
+        // 如果歌词正在加载中（Resolving）或者文档为空，坚决不推进歌词计算
+        if (_doc == null || Phase != LyricsPhase.Ready)
             return;
 
         var pos = (long)_clock.Estimate().TotalMilliseconds + _settings.Current.GlobalOffsetMs + _songOffsetMs;
