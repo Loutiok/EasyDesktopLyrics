@@ -1051,13 +1051,15 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private void OnLyricsPhaseChanged()
     {
-        // 切歌/重新解析：立即清理可能残留的退出覆盖层（旧曲行切换的动画快照）。
-        // 否则旧曲的那一行会作为 LyricsArea 的覆盖层短暂显示在新歌歌词上方，
-        // 直到原动画的延迟移除任务（约 200ms）才消失。
         if (_vm.Phase is LyricsPhase.Resolving or LyricsPhase.NoSession)
         {
-            ClearExitOverlays();
-            CancelLineAnimation();
+            ClearExitOverlays();   // 清除旧覆盖层[cite: 6]
+            CancelLineAnimation(); // 终止旧动画[cite: 6]
+            
+            // 把记录上一句歌词的缓存彻底置空！
+            // 防止新歌到来时，系统误把旧歌的内容当成"上一行"播交叉淡化/退场动画
+            _lastMainText = "";
+            _lastTransText = "";
         }
 
         if (!_coverAnimating)
