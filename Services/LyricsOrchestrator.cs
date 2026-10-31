@@ -107,8 +107,6 @@ public sealed partial class LyricsOrchestrator
         _songOffsetMs = _overrides.Get(LyricsMatcher.TrackKey(t))?.OffsetMs ?? 0;
         Tick(forceRaise: true);
     }
-
-    private int _trackEpoch = 0; // 当前曲目的代数标记
     
     private void OnTrackChanged(TrackInfo? t)
     {
