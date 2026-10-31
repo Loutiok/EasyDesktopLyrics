@@ -30,20 +30,21 @@ public sealed class PlaybackClock
             var incomingPositionNow = s.Position + age * _rate;
             var backwardDelta = estimatedNow - incomingPositionNow;
 
-            // 缩短到 1.5 秒：足够消化切歌瞬间的旧事件倾倒，又不会占用正常交互时长
+            // 切歌后的 1.5 秒内，如果上报的位置比当前估算落后（100ms ~ 1500ms），
+            // 视为播放器启动排队的迟到包，不回滚时钟，维持挂钟进度
             var isWithinTrackChangeWindow = DateTimeOffset.UtcNow - _lastResetAt < TimeSpan.FromMilliseconds(1500);
-            
-            if (isWithinTrackChangeWindow 
-                && IsPlaying 
-                && s.IsPlaying 
-                && backwardDelta > TimeSpan.FromMilliseconds(150) 
+
+            if (isWithinTrackChangeWindow
+                && IsPlaying
+                && s.IsPlaying
+                && backwardDelta > TimeSpan.FromMilliseconds(100)
                 && backwardDelta < TimeSpan.FromMilliseconds(1500))
             {
-                // 仅在切歌刚发生的 1.5 秒内吃掉滞后小抖动
+                // 吃掉切歌初期的迟到小倒流
             }
             else
             {
-                // 其余所有情况：包括 1.5 秒后、或者往回拖拽超过 1.5 秒的大跳转，全部秒级响应
+                // 其余所有情况：正常采用
                 _basePos = s.Position;
                 _baseAt = s.PositionAt;
             }
@@ -57,14 +58,18 @@ public sealed class PlaybackClock
         IsPlaying = s.IsPlaying;
     }
 
-    public void Reset()
+    /// <summary>
+    /// 切歌时复位：基准时间归零，但保持 keepPlaying 状态，
+    /// 确保切歌后哪怕暂无 SMTC 事件包，挂钟也能立即从 0 开始自然计时，防止歌词滞后
+    /// </summary>
+    public void Reset(bool keepPlaying = true)
     {
         _basePos = TimeSpan.Zero;
         _baseAt = DateTimeOffset.UtcNow;
         _rate = 1.0;
         _duration = TimeSpan.Zero;
-        IsPlaying = false;
-        _lastResetAt = DateTimeOffset.UtcNow; // 标记切歌时刻
+        IsPlaying = keepPlaying;
+        _lastResetAt = DateTimeOffset.UtcNow;
     }
 
     public TimeSpan Estimate()
