@@ -40,7 +40,7 @@ public sealed partial class LyricsOrchestrator
     private bool _hasWords;
     private LyricTimingFrame _timingFrame = LyricTimingFrame.None;
     private bool _suppressLineTransition;
-    private bool _waitingForFreshPosition;
+    private int _trackEpoch;
     private DateTimeOffset _trackChangedAt;
 
     public LyricsOrchestrator(
@@ -77,6 +77,7 @@ public sealed partial class LyricsOrchestrator
     public event Action? StateChanged;
     public event Action<bool>? LineChanged;
 
+    /// <summary>手动校正后强制重新解析当前曲目（绕过磁盘缓存）。</summary>
     public void RefreshCurrent()
     {
         var t = Track;
@@ -95,7 +96,7 @@ public sealed partial class LyricsOrchestrator
         CurrentTrans = "";
         UpdateTimer();
         Raise();
-        _ = ResolveAndApplyAsync(t, force: true, cts.Token);
+        _ = ResolveAndApplyAsync(t, ++_trackEpoch, force: true, cts.Token);
     }
 
     public void NotifySongOffsetChanged()
@@ -111,16 +112,14 @@ public sealed partial class LyricsOrchestrator
     
     private void OnTrackChanged(TrackInfo? t)
     {
-        // 1. 切歌代数递增，旧曲的所有排队事件瞬间失效
         var currentEpoch = ++_trackEpoch;
         _trackChangedAt = DateTimeOffset.UtcNow;
-    
+
         _cts?.Cancel();
         _cts = null;
         _suppressLineTransition = true;
         Track = t;
-    
-        // 2. 彻底重置所有状态
+
         _doc = null;
         _hasWords = false;
         _lineIndex = -1;
@@ -128,8 +127,8 @@ public sealed partial class LyricsOrchestrator
         _timingFrame = LyricTimingFrame.None;
         CurrentMain = "";
         CurrentTrans = "";
-        _clock.Reset(keepPlaying: false); // 时间轴彻底归零，暂停推进
-    
+        _clock.Reset(keepPlaying: false);
+
         if (t == null)
         {
             Phase = LyricsPhase.NoSession;
@@ -137,16 +136,15 @@ public sealed partial class LyricsOrchestrator
             Raise();
             return;
         }
-    
-        // 3. 没歌词时就是 Resolving，显示占位符，时钟不动
+
         Phase = LyricsPhase.Resolving;
         UpdateTimer();
-        Raise(); // UI 立即显示占位符
+        Raise();
         LineChanged?.Invoke(true);
-    
+
         var cts = new CancellationTokenSource();
         _cts = cts;
-        _ = ResolveAndApplyAsync(t, currentEpoch, cts.Token);
+        _ = ResolveAndApplyAsync(t, currentEpoch, force: false, cts.Token);
     }
 
     private void OnPlaybackChanged(PlaybackSnapshot snapshot)
@@ -165,7 +163,7 @@ public sealed partial class LyricsOrchestrator
         Raise();
     }
 
-    private async Task ResolveAndApplyAsync(TrackInfo t, bool force, CancellationToken ct)
+    private async Task ResolveAndApplyAsync(TrackInfo t, int epoch, bool force, CancellationToken ct)
     {
         LyricDocument? doc = null;
         var songOffset = 0;
@@ -187,8 +185,10 @@ public sealed partial class LyricsOrchestrator
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (ct.IsCancellationRequested || !ReferenceEquals(Track, t))
+            // 如果在这段解析期间用户又切歌了（epoch 已经过时），或者实例不一致，直接丢弃
+            if (ct.IsCancellationRequested || epoch != _trackEpoch || !ReferenceEquals(Track, t))
                 return;
+
             _doc = doc;
             _hasWords = doc?.Lines.Any(l => l.Words is { Count: > 0 }) == true;
             _songOffsetMs = songOffset;
@@ -199,9 +199,8 @@ public sealed partial class LyricsOrchestrator
 
             Phase = doc != null ? LyricsPhase.Ready : LyricsPhase.NoLyric;
             Log.Info($"lyric {(doc != null ? $"ready ({doc.Lines.Count} lines, words={_hasWords})" : "not found")}: {t.Title}");
+            
             UpdateTimer();
-
-            // 【关键】：歌词就绪的第一刻，绝对抑制所有进入动效，直接瞬显，避免字体闪烁！
             _suppressLineTransition = true;
             Tick(forceRaise: true, suppressTransition: true);
             Raise();
