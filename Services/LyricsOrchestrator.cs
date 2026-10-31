@@ -15,20 +15,13 @@ public enum LyricsPhase
     NoLyric,
 }
 
-/// <summary>
-/// 协调层：曲目变化 → override/缓存/搜索匹配 → LyricDocument；
-/// 100ms 定时器 → 二分定位当前行，仅行号变化时通知 UI。
-/// 除 ResolveCoreAsync 内部外全部运行在 UI 线程。
-/// </summary>
 public sealed partial class LyricsOrchestrator
 {
     private static readonly TimeSpan NegativeCacheTtl = TimeSpan.FromDays(3);
 
-    /// <summary>纯音乐占位行：整首歌词仅含此类文本时视为无歌词（显示标题）。</summary>
     [GeneratedRegex("纯音乐|伴奏|演奏曲|instrumental|no lyrics|music only", RegexOptions.IgnoreCase)]
     private static partial Regex InstrumentalPattern();
 
-    /// <summary>作词/作曲等元信息行（纯音乐中保留显示，显示完后切回标题）。</summary>
     [GeneratedRegex("^(作词|作曲|编曲|制作人?|OP|SP|原曲|演唱|和声|混音|母带|录音|发行|版权|企划|出品)", RegexOptions.IgnoreCase)]
     private static partial Regex MetaInfoPattern();
 
@@ -47,7 +40,7 @@ public sealed partial class LyricsOrchestrator
     private bool _hasWords;
     private LyricTimingFrame _timingFrame = LyricTimingFrame.None;
     private bool _suppressLineTransition;
-    private bool _waitingForFreshPosition;   // 切歌后到新歌词就绪前，SMTC 位置不可信
+    private bool _waitingForFreshPosition;
     private DateTimeOffset _trackChangedAt;
 
     public LyricsOrchestrator(
@@ -70,43 +63,20 @@ public sealed partial class LyricsOrchestrator
     }
 
     public LyricsPhase Phase { get; private set; } = LyricsPhase.NoSession;
-
     public TrackInfo? Track { get; private set; }
-
     public bool IsPlaying => _clock.IsPlaying;
-
     public string CurrentMain { get; private set; } = "";
-
     public string CurrentTrans { get; private set; } = "";
-
-    /// <summary>true = 当前歌词为纯音乐（仅元信息行）。</summary>
     public bool IsInstrumental => _doc?.IsInstrumental == true;
-
-    /// <summary>当前歌词是否含逐字（卡拉 OK）数据。</summary>
     public bool HasWordData => _hasWords;
-
-    /// <summary>纯音乐元信息行已显示完毕（时间超过最后一行 5 秒）→ 切回标题。</summary>
     public bool InstrumentalEnded => _instrumentalEnded;
-
-    /// <summary>当前行已唱字符数；-1 = 非逐字模式（整行高亮）。</summary>
     public int CurrentWordDone => _timingFrame.CompletedCharacters;
-
-    /// <summary>正在唱字符的渐变进度 0~1（字符内平滑点亮）；非逐字模式为 0。</summary>
     public double CurrentWordFraction => _timingFrame.HighlightFraction;
-
-    /// <summary>当前播放时刻的精确歌词时间轴快照，供视觉模式驱动当前音节和释放余辉。</summary>
     public LyricTimingFrame CurrentTimingFrame => _timingFrame;
 
-    /// <summary>任何展示相关状态变化（相位/当前行/播放状态）。UI 线程回调。</summary>
     public event Action? StateChanged;
-
-    /// <summary>
-    /// 当前行切换（歌词行号变化）。UI 线程回调；bool = 是否抑制行间动效
-    /// （true：切歌/手动校正/seek 跳变等场景，应由宿主直接瞬切）。
-    /// </summary>
     public event Action<bool>? LineChanged;
 
-    /// <summary>手动校正后强制重新解析当前曲目（绕过磁盘缓存）。</summary>
     public void RefreshCurrent()
     {
         var t = Track;
@@ -128,7 +98,6 @@ public sealed partial class LyricsOrchestrator
         _ = ResolveAndApplyAsync(t, force: true, cts.Token);
     }
 
-    /// <summary>单曲偏移变更后即时生效（不重新拉取歌词）。</summary>
     public void NotifySongOffsetChanged()
     {
         var t = Track;
@@ -147,21 +116,18 @@ public sealed partial class LyricsOrchestrator
         _cts = null;
         _suppressLineTransition = true;
         Track = t;
-        
-        // 彻底抹除所有歌词文档与当前行索引
+
         _doc = null;
         _hasWords = false;
         _lineIndex = -1;
         _songOffsetMs = 0;
         _timingFrame = LyricTimingFrame.None;
-        
-        // 将当前歌词强制清空
         CurrentMain = "";
         CurrentTrans = "";
-        _clock.Reset();
 
         if (t == null)
         {
+            _clock.Reset(keepPlaying: false);
             _waitingForFreshPosition = false;
             Phase = LyricsPhase.NoSession;
             UpdateTimer();
@@ -169,12 +135,12 @@ public sealed partial class LyricsOrchestrator
             return;
         }
 
-        // 切换到 Resolving 相位并立即强制广播，让 UI 瞬间抹除旧歌词
+        // 切歌时保持当前时钟播放状态，让挂钟从 0 实时起步
+        _clock.Reset(keepPlaying: true);
         Phase = LyricsPhase.Resolving;
         UpdateTimer();
         Raise();
-        // 显式触发一次行变化通知（传 true 抑制任何行切换过渡动画）
-        LineChanged?.Invoke(true);
+        LineChanged?.Invoke(true); // 抑制过渡动画
 
         var cts = new CancellationTokenSource();
         _cts = cts;
@@ -183,42 +149,37 @@ public sealed partial class LyricsOrchestrator
 
     private void OnPlaybackChanged(PlaybackSnapshot snapshot)
     {
-        // 如果切歌后处于等待稳定期，且此时上报的位置明显还是旧曲超长位置（比如 > 5秒），
-        // 视为旧曲残留直接丢弃；若已经回归曲首合理范围，则直接放行并解除等待
         if (_waitingForFreshPosition)
         {
             var elapsed = DateTimeOffset.UtcNow - _trackChangedAt;
-            if (elapsed < TimeSpan.FromMilliseconds(1200))
+            if (elapsed < TimeSpan.FromMilliseconds(1500))
             {
-                // 旧曲残留通常 Duration 或 Position 远大于正常曲首
-                if (snapshot.Position > TimeSpan.FromSeconds(3))
+                // 旧曲超长残留包直接抛弃
+                if (snapshot.Position > TimeSpan.FromSeconds(4))
                 {
-                    // 仅忽略旧曲残留大位置，只更新播放状态
-                    snapshot = snapshot with { PositionAt = DateTimeOffset.UtcNow - TimeSpan.FromHours(1) };
+                    return;
                 }
-                else
-                {
-                    // 已经是合法的曲首时间，提前解除等待
-                    _waitingForFreshPosition = false;
-                }
-            }
-            else
-            {
+                // 收到新曲合法的开头包，立即采纳基准并解除锁定
+                _clock.Sync(snapshot);
                 _waitingForFreshPosition = false;
+                UpdateTimer();
+                Tick(forceRaise: true, suppressTransition: true);
+                Raise();
+                return;
             }
+            _waitingForFreshPosition = false;
         }
-    
+
         var posBefore = _clock.Estimate();
         _clock.Sync(snapshot);
         UpdateTimer();
-    
+
         var jump = _clock.Estimate() - posBefore;
-        // 只要位置发生超过 500ms 的非自然跳变（包括小幅度 Seek），都视为用户 Seek，抑制过渡动画并强制刷新
         var seekJumped = jump > TimeSpan.FromMilliseconds(500) || jump < -TimeSpan.FromMilliseconds(500);
         if (seekJumped)
             _suppressLineTransition = true;
-    
-        Tick(forceRaise: seekJumped);
+
+        Tick(forceRaise: seekJumped, suppressTransition: seekJumped);
         Raise();
     }
 
@@ -254,24 +215,13 @@ public sealed partial class LyricsOrchestrator
             CurrentMain = "";
             CurrentTrans = "";
 
-            // 兜底：若就绪时时钟仍残留旧曲位置且明显超出新曲时间轴末尾，重置。
-            // 正常情况下 _waitingForFreshPosition 已保证切歌后位置归零，这里是极端路径保护。
-            if (doc is { Lines.Count: > 0 })
-            {
-                var lastMs = doc.Lines[^1].TimeMs;
-                var currentMs = _clock.Estimate().TotalMilliseconds;
-                if (currentMs > lastMs + 30000)
-                {
-                    Log.Info($"clock reset after track change: pos={currentMs:F0}ms > docEnd={lastMs}ms");
-                    _clock.Reset();
-                }
-            }
-
-
             Phase = doc != null ? LyricsPhase.Ready : LyricsPhase.NoLyric;
             Log.Info($"lyric {(doc != null ? $"ready ({doc.Lines.Count} lines, words={_hasWords})" : "not found")}: {t.Title}");
             UpdateTimer();
-            Tick(forceRaise: true);
+
+            // 【关键】：歌词就绪的第一刻，绝对抑制所有进入动效，直接瞬显，避免字体闪烁！
+            _suppressLineTransition = true;
+            Tick(forceRaise: true, suppressTransition: true);
             Raise();
         });
     }
@@ -282,7 +232,6 @@ public sealed partial class LyricsOrchestrator
         var ov = _overrides.Get(key);
         var songOffset = ov?.OffsetMs ?? 0;
 
-        // 1. 磁盘缓存
         if (!force)
         {
             var cached = await _cache.GetAsync(key).ConfigureAwait(false);
@@ -302,8 +251,7 @@ public sealed partial class LyricsOrchestrator
                         var cachedDoc = ParseLyric(cached.Lrc, cached.TransLrc, cached.WordLrc);
                         if (cachedDoc != null)
                         {
-                            Log.Info($"cache hit: {key} [{cached.Source}] words={!string.IsNullOrEmpty(cached.WordLrc)}");                            // 缓存无逐字（上次 yrc 获取失败/无数据）→ 后台补拉 yrc，不阻塞歌词显示；
-                            // 仅网易云源缓存可补拉（yrc 是网易专属字段；其他源的 SongId 不能用于网易云请求）
+                            Log.Info($"cache hit: {key} [{cached.Source}] words={!string.IsNullOrEmpty(cached.WordLrc)}");
                             if (string.IsNullOrEmpty(cached.WordLrc)
                                 && cached.Source == "netease"
                                 && !string.IsNullOrEmpty(cached.SongId)
@@ -319,7 +267,6 @@ public sealed partial class LyricsOrchestrator
         }
         Log.Info($"cache miss: {key} ({t.Artist}|{t.Title} dur={t.DurationMs}ms)");
 
-        // 2. 手动校正指定的歌词
         if (ov is { SongId.Length: > 0, Provider.Length: > 0 })
         {
             var provider = _providers.FirstOrDefault(p => p.Id == ov.Provider);
@@ -333,10 +280,8 @@ public sealed partial class LyricsOrchestrator
                     return (doc, songOffset);
                 }
             }
-            // override 失效 → 继续走自动匹配
         }
 
-        // 3. 自动搜索 + 打分
         var enabled = EnabledProviders();
         var candidates = new List<(ILyricsProvider Provider, ProviderSong Song, double Score)>();
         for (var i = 0; i < enabled.Count; i++)
@@ -362,13 +307,10 @@ public sealed partial class LyricsOrchestrator
                 candidates.Add((provider, song, LyricsMatcher.Score(t, song)));
             Log.Info($"search {provider.Id}: {found.Count} hits for '{LyricsMatcher.BuildKeyword(t)}'");
 
-            // 第一源已有高置信度命中，省掉第二源的请求
             if (i == 0 && candidates.Any(c => c.Score >= LyricsMatcher.EarlyAcceptThreshold))
                 break;
         }
 
-        // 优先尝试网易云候选（唯一带逐字歌词的源）：同合格线内 netease 排最前，防其他源以更高 score 抢走；
-        // 拉取失败仍会继续尝试后续源兜底
         foreach (var c in candidates
                      .Where(c => c.Score >= LyricsMatcher.AcceptThreshold)
                      .OrderByDescending(c => c.Provider.Id == "netease" ? 1 : 0)
@@ -392,23 +334,16 @@ public sealed partial class LyricsOrchestrator
         return (null, songOffset);
     }
 
-    /// <summary>
-    /// 解析 LRC（可选逐字 klyric 合并）。纯音乐判定：排除元信息行后，无内容或全部为纯音乐占位字样。
-    /// 纯音乐且存在元信息行（作词/作曲等）→ 保留元信息行短暂显示，之后切回标题；
-    /// 否则返回 null（直接显示标题）。
-    /// </summary>
     private static LyricDocument? ParseLyric(string? lrc, string? transLrc, string? wordLrc)
     {
         var doc = LrcParser.Parse(lrc, transLrc);
         if (doc == null)
             return null;
 
-        // 1. 如果有单独的逐字源（如网易云 yrc），优先使用
         if (!string.IsNullOrWhiteSpace(wordLrc))
         {
             doc = MergeWordLines(doc, LrcParser.ParseWordLines(wordLrc));
         }
-        // 2. 如果没有独立 wordLrc，但主歌词 lrc 本身就包含内嵌逐字标签（方括号/尖括号逐字 LRC）
         else if (!string.IsNullOrWhiteSpace(lrc))
         {
             var localWordLines = LrcParser.ParseWordLines(lrc);
@@ -424,9 +359,8 @@ public sealed partial class LyricsOrchestrator
 
         var content = texts.Where(t => !MetaInfoPattern().IsMatch(t)).ToList();
         if (content.Count > 0 && !content.All(t => InstrumentalPattern().IsMatch(t)))
-            return LyricsTimelineBuilder.AssignCharacterTimings(doc); // 正常歌词
+            return LyricsTimelineBuilder.AssignCharacterTimings(doc);
 
-        // 纯音乐：保留元信息行供短暂显示
         var meta = doc.Lines
             .Where(l => l.Text.Length > 0 && MetaInfoPattern().IsMatch(l.Text))
             .ToList();
@@ -435,11 +369,6 @@ public sealed partial class LyricsOrchestrator
             : null;
     }
 
-    /// <summary>
-    /// 逐字补充层合并：优先按规范化文本挂到主歌词行，时间仅用于重复句消歧；
-    /// 文本不可匹配时才回退到 ±800ms 最近行。
-    /// 匹配率 ≥60% 才视为整首有效（否则整体回退整行高亮）。
-    /// </summary>
     private static LyricDocument MergeWordLines(
         LyricDocument doc, IReadOnlyList<LyricWordLine> wordLines)
     {
@@ -457,8 +386,6 @@ public sealed partial class LyricsOrchestrator
             var bestIndex = -1;
             var normalizedText = NormalizeLyricText(l.Text);
 
-            // YRC 的行起点可能包含数秒前导长音/静音，不能只依赖时间戳。
-            // 同文重复句仍以时间最近者消歧，并保证一条逐字行最多消费一次。
             if (normalizedText.Length > 0)
             {
                 for (var wordIndex = 0; wordIndex < wordLines.Count; wordIndex++)
@@ -517,10 +444,6 @@ public sealed partial class LyricsOrchestrator
         return string.Concat(normalized.Where(char.IsLetterOrDigit)).ToUpperInvariant();
     }
 
-    /// <summary>
-    /// 后台补拉逐字歌词：缓存命中但无 yrc 时异步重试（网易云接口不稳定）；
-    /// 成功后替换内存文档启用逐字高亮，并更新磁盘缓存。失败静默（保持整行高亮）。
-    /// </summary>
     private async void RefreshYrcAsync(string key, TrackInfo t, ILyricsProvider provider, string songId, CancellationToken ct)
     {
         LyricDocument? withWords = null;
@@ -580,7 +503,6 @@ public sealed partial class LyricsOrchestrator
         }
     }
 
-    /// <summary>按设置的歌词源优先级顺序返回启用的 Provider。</summary>
     private List<ILyricsProvider> EnabledProviders()
     {
         var s = _settings.Current;
@@ -596,7 +518,6 @@ public sealed partial class LyricsOrchestrator
         return list;
     }
 
-    /// <summary>逐字模式：设置开启且当前歌词含逐字数据。</summary>
     private bool WordMode => _settings.Current.WordByWord && _hasWords;
 
     private void UpdateTimer()
@@ -616,14 +537,17 @@ public sealed partial class LyricsOrchestrator
 
     private void Tick(bool forceRaise, bool suppressTransition = false)
     {
-        // 如果歌词正在加载中（Resolving）或者文档为空，坚决不推进歌词计算
         if (_doc == null || Phase != LyricsPhase.Ready)
             return;
 
         var pos = (long)_clock.Estimate().TotalMilliseconds + _settings.Current.GlobalOffsetMs + _songOffsetMs;
+
+        // 如果旧歌原本处于后半段，位置却瞬间跌回开头，判定为切歌残留包，直接丢弃
+        if (_lineIndex > 2 && pos < 2000)
+            return;
+
         var idx = LrcParser.FindIndex(_doc.Lines, pos);
 
-        // 纯音乐：时间超过最后一行元信息 5 秒 → 结束显示（切回标题）
         var ended = _doc.IsInstrumental && _doc.Lines.Count > 0
                     && pos > _doc.Lines[^1].TimeMs + 5000;
 
@@ -650,11 +574,10 @@ public sealed partial class LyricsOrchestrator
             LineChanged?.Invoke(suppress);
     }
 
-    /// <summary>伴奏/间奏/前奏一律显示 "···"，始终保持有内容。</summary>
     private string ResolveMainText(int idx)
     {
         if (idx < 0)
-            return "\u00B7\u00B7\u00B7"; // 前奏
+            return "\u00B7\u00B7\u00B7";
         var text = _doc!.Lines[idx].Text;
         return text.Length > 0 ? text : "\u00B7\u00B7\u00B7";
     }
