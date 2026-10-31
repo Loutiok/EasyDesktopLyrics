@@ -107,16 +107,20 @@ public sealed partial class LyricsOrchestrator
         Tick(forceRaise: true);
     }
 
+    private int _trackEpoch = 0; // 当前曲目的代数标记
+    
     private void OnTrackChanged(TrackInfo? t)
     {
-        _waitingForFreshPosition = true;
+        // 1. 切歌代数递增，旧曲的所有排队事件瞬间失效
+        var currentEpoch = ++_trackEpoch;
         _trackChangedAt = DateTimeOffset.UtcNow;
-
+    
         _cts?.Cancel();
         _cts = null;
         _suppressLineTransition = true;
         Track = t;
-
+    
+        // 2. 彻底重置所有状态
         _doc = null;
         _hasWords = false;
         _lineIndex = -1;
@@ -124,62 +128,40 @@ public sealed partial class LyricsOrchestrator
         _timingFrame = LyricTimingFrame.None;
         CurrentMain = "";
         CurrentTrans = "";
-
+        _clock.Reset(keepPlaying: false); // 时间轴彻底归零，暂停推进
+    
         if (t == null)
         {
-            _clock.Reset(keepPlaying: false);
-            _waitingForFreshPosition = false;
             Phase = LyricsPhase.NoSession;
             UpdateTimer();
             Raise();
             return;
         }
-
-        // 切歌时保持当前时钟播放状态，让挂钟从 0 实时起步
-        _clock.Reset(keepPlaying: true);
+    
+        // 3. 没歌词时就是 Resolving，显示占位符，时钟不动
         Phase = LyricsPhase.Resolving;
         UpdateTimer();
-        Raise();
-        LineChanged?.Invoke(true); // 抑制过渡动画
-
+        Raise(); // UI 立即显示占位符
+        LineChanged?.Invoke(true);
+    
         var cts = new CancellationTokenSource();
         _cts = cts;
-        _ = ResolveAndApplyAsync(t, force: false, cts.Token);
+        _ = ResolveAndApplyAsync(t, currentEpoch, cts.Token);
     }
 
     private void OnPlaybackChanged(PlaybackSnapshot snapshot)
     {
-        if (_waitingForFreshPosition)
+        // 如果当前歌词根本还没就绪（还在占位符阶段），绝对不要让外部旧位置来污染时钟！
+        if (Phase != LyricsPhase.Ready)
         {
-            var elapsed = DateTimeOffset.UtcNow - _trackChangedAt;
-            if (elapsed < TimeSpan.FromMilliseconds(1500))
-            {
-                // 旧曲超长残留包直接抛弃
-                if (snapshot.Position > TimeSpan.FromSeconds(4))
-                {
-                    return;
-                }
-                // 收到新曲合法的开头包，立即采纳基准并解除锁定
-                _clock.Sync(snapshot);
-                _waitingForFreshPosition = false;
-                UpdateTimer();
-                Tick(forceRaise: true, suppressTransition: true);
-                Raise();
-                return;
-            }
-            _waitingForFreshPosition = false;
+            // 只记录播放/暂停状态，位置等歌词下好、真正就绪了再说
+            return;
         }
-
-        var posBefore = _clock.Estimate();
+    
+        // 只有歌词真正就绪、曲目进入正常播放后，才采纳正常时钟
         _clock.Sync(snapshot);
         UpdateTimer();
-
-        var jump = _clock.Estimate() - posBefore;
-        var seekJumped = jump > TimeSpan.FromMilliseconds(500) || jump < -TimeSpan.FromMilliseconds(500);
-        if (seekJumped)
-            _suppressLineTransition = true;
-
-        Tick(forceRaise: seekJumped, suppressTransition: seekJumped);
+        Tick(forceRaise: false);
         Raise();
     }
 
