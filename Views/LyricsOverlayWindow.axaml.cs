@@ -74,6 +74,10 @@ public sealed partial class LyricsOverlayWindow : Window
     private Control? _crossfadeMain;
     private Control? _crossfadeTrans;
 
+    // 超长歌词跑马灯滚动状态
+    private double _scrollOverflow;
+    private double _currentScrollX;
+
     public event Action<double, double>? AnchorChanged;
 
     /// <summary>
@@ -113,7 +117,6 @@ public sealed partial class LyricsOverlayWindow : Window
         // 把窗口撑到巨大瞬时尺寸 → 按锚点定位时顶部被推到屏幕外、再被系统钳到顶边（重启后位置偏移的根因）。
         CoverImage.Width = 0;
         CoverImage.Height = 0;
-        // 初始阶段定位前先移出屏幕，避免默认位置 + 瞬时巨大尺寸的闪烁
         Position = new PixelPoint(-20000, -20000);
 
         _topmostTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
@@ -136,12 +139,9 @@ public sealed partial class LyricsOverlayWindow : Window
         PointerEntered += (_, _) => { _hideControlsTimer.Stop(); SetControlsVisible(true); };
         PointerExited += (_, _) => _hideControlsTimer.Start();
 
-        // 窗口高度显式管理：Avalonia 的 SizeToContent 高度跟随在高分屏环境不可靠
-        // （窗口高度不随内容增长 → 封面/胶囊被窗口边缘截断），宽度仍由 SizeToContent 自动。
         LayoutUpdated += (_, _) =>
         {
             SyncWindowHeight();
-            // 歌名进入：布局完成后（Bounds 就绪）瞬移起始位置（临时禁过渡）→ 淡入
             if (_coverAnimating && _coverTitleEnterPending)
             {
                 _coverTitleEnterPending = false;
@@ -153,16 +153,13 @@ public sealed partial class LyricsOverlayWindow : Window
                 CoverTitleBox.Opacity = 1;
                 _coverPosDirty = true;
             }
-            // 校正到最终位置：从起始位置沿方向轴平滑滑入（x 恒定，无斜向）
             if (_coverAnimating && _coverPosDirty)
             {
                 _coverPosDirty = false;
                 UpdateCoverTitlePosition();
             }
-            // 扫光层跟随主行位置（行宽/布局变化后保持对齐）
             if (_lineAnimKind == "Shine" && _shineLayer != null)
                 PositionShineLayer();
-            // 背景动效：歌词行区域（频谱“行中央”定位基准）
             if (LyricsArea.Bounds.Height > 0)
             {
                 var origin = LyricsArea.TranslatePoint(new Point(0, 0), _bgFx);
@@ -181,11 +178,11 @@ public sealed partial class LyricsOverlayWindow : Window
         _settingsService.Changed += ApplyCoverAnimationStyle;
         _settingsService.Changed += OnLineTransitionSettingsChanged;
 
-        // 视觉模式切换后主行控件会替换，因此统一观察稳定的 RootPanel 宿主。
         RootPanel.SizeChanged += (_, _) =>
         {
             UpdateCoverSize();
             UpdateCoverPosition();
+            RecalculateScrollOverflow();
         };
         _vm.PropertyChanged += OnVmChanged;
         _vm.LineChanged += OnLineChanged;
@@ -196,16 +193,12 @@ public sealed partial class LyricsOverlayWindow : Window
     private void SetControlsVisible(bool visible)
     {
         if (visible && _coverAnimating)
-            return; // 切歌动画期间保持隐藏
+            return;
         ControlBar.Height = visible ? 34 : 0;
         ControlBar.Opacity = visible ? 1 : 0;
         ControlBar.IsHitTestVisible = visible;
     }
 
-    /// <summary>
-    /// 窗口高度 = 内容布局期望高度（主行 + 翻译行 + spacing + 封面覆盖层 + 歌名区 + 控制条 + padding）。
-    /// 各组件 Bounds 均与窗口高度无关（宽度由 SizeToContent 决定，缩放由此确定）→ 收敛无循环。
-    /// </summary>
     private double ContentHeight()
     {
         var h = _mainGrid.Bounds.Height;
@@ -214,13 +207,11 @@ public sealed partial class LyricsOverlayWindow : Window
         h = Math.Max(h, Cover.Bounds.Height);
         if (_coverLayoutExpanded)
             h = Math.Max(h, _coverAnimSize);
-        // 动画期间歌名显示在封面下方：窗口容纳封面目标高度（行高×3）+ 间距 + 歌名区
         if (_coverAnimating && CoverTitleBox.IsVisible && CoverTitleBox.Bounds.Height > 0)
             h = Math.Max(h, _coverAnimSize + 8 + CoverTitleBox.Bounds.Height);
-        return h + ControlBar.Height + 12; // 12 = Border padding 6×2
+        return h + ControlBar.Height + 12;
     }
 
-    /// <summary>显式同步窗口高度（差异 > 0.5 才设置，避免抖动/循环）。</summary>
     private void SyncWindowHeight()
     {
         if (!IsVisible || Height <= 0)
@@ -232,7 +223,7 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private void UpdatePlayPauseIcon()
     {
-        PlayPauseIcon.Text = _vm.IsPlaying ? "\uE769" : "\uE768"; // Pause / Play
+        PlayPauseIcon.Text = _vm.IsPlaying ? "\uE769" : "\uE768";
     }
 
     private void BuildTextLayers()
@@ -262,6 +253,7 @@ public sealed partial class LyricsOverlayWindow : Window
             UpdateCoverSize();
             UpdateCoverPosition();
             SyncWindowHeight();
+            RecalculateScrollOverflow();
         });
     }
 
@@ -283,7 +275,6 @@ public sealed partial class LyricsOverlayWindow : Window
             if (ReferenceEquals(_lastCoverImage, _vm.CoverImage))
                 return;
             _lastCoverImage = _vm.CoverImage;
-            // 封面内容刷新（同歌重取等），不重放切歌动画
             CoverImage.Source = _vm.CoverImage;
             _bgFx.SetCoverImage(_vm.CoverImage);
             if (!_coverAnimating)
@@ -294,13 +285,12 @@ public sealed partial class LyricsOverlayWindow : Window
         }
         else if (e.PropertyName == nameof(OverlayViewModel.MaxTextWidth))
         {
-            // 歌词区域宽度上限变化：常驻时同步（动画期间由动画状态管理）
             if (!_coverAnimating)
                 LyricsArea.MinWidth = _vm.MaxTextWidth;
+            RecalculateScrollOverflow();
         }
         else if (e.PropertyName == nameof(OverlayViewModel.CoverEnabled))
         {
-            // 播放状态广播频繁且值可能未变：仅值真正变化时才处理
             if (_vm.CoverEnabled == _lastCoverEnabled)
                 return;
             _lastCoverEnabled = _vm.CoverEnabled;
@@ -325,9 +315,14 @@ public sealed partial class LyricsOverlayWindow : Window
             SwitchLyricVisualMode();
         else if (e.PropertyName == nameof(OverlayViewModel.TextAlignment))
             ApplyAlignment();
+        else if (e.PropertyName is nameof(OverlayViewModel.WordHighlightLength)
+                 or nameof(OverlayViewModel.WordHighlightFraction))
+        {
+            // 逐字进度变化时，平滑驱动超长歌词横向滚动
+            UpdateMarqueeScroll();
+        }
         else if (e.PropertyName == nameof(OverlayViewModel.CoverTitleEnabled))
         {
-            // StateChanged 广播频繁且值可能未变：仅值真正变化时才处理，避免动画中反复重启滑入过渡
             if (_vm.CoverTitleEnabled == _lastCoverTitleEnabled)
                 return;
             _lastCoverTitleEnabled = _vm.CoverTitleEnabled;
@@ -341,17 +336,81 @@ public sealed partial class LyricsOverlayWindow : Window
         }
     }
 
-    // ---------- 行间切换动效 ----------
-
-    /// <summary>上一次行间动效的结束时刻；行变化过密时回退为瞬切，避免反复从 0 淡入导致持续偏暗。</summary>
-    private DateTimeOffset _lineTransitionUntil;
+    // ---------- 跑马灯滚动逻辑 ----------
 
     /// <summary>
-    /// 行切换回调（由 Orchestrator 触发，UI 线程）：开关关闭/抑制（切歌、seek、手动校正）/封面动画期间直接忽略，
-    /// 保持当前版本的即时切换；否则按类型播放进入动效。任何异常回退到即时切换（Opacity=1、无变换）。
+    /// 测量当前歌词文字是否超过了容器可视区宽度。超长时计算需要向左滚动的溢出距离。
     /// </summary>
+    private void RecalculateScrollOverflow()
+    {
+        _mainGrid.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var textW = _mainGrid.DesiredSize.Width;
+        var maxW = _vm.MaxTextWidth;
+
+        _scrollOverflow = Math.Max(0, textW - maxW);
+        if (_scrollOverflow <= 0)
+        {
+            ApplyScrollOffset(0);
+        }
+    }
+
+    /// <summary>
+    /// 根据当前行的逐字点亮进度（0.0 ~ 1.0）驱动超长歌词平滑向左滚动。
+    /// 前 15% 保持静止看句首，中间 70% 匀速滚动，后 15% 停留看句尾。
+    /// </summary>
+    private void UpdateMarqueeScroll()
+    {
+        if (_scrollOverflow <= 0)
+            return;
+
+        var totalChars = _vm.MainText.Length;
+        if (totalChars <= 0)
+            return;
+
+        // 计算当前句进度 (0.0 ~ 1.0)
+        double p;
+        if (_vm.WordHighlightLength < 0)
+        {
+            p = 0; // 非逐字模式保持首部
+        }
+        else
+        {
+            var rawProgress = _vm.WordHighlightLength + _vm.WordHighlightFraction;
+            p = Math.Clamp(rawProgress / totalChars, 0.0, 1.0);
+        }
+
+        // 两端留白窗口映射
+        double scrollRatio;
+        if (p <= 0.15)
+            scrollRatio = 0.0;
+        else if (p >= 0.85)
+            scrollRatio = 1.0;
+        else
+            scrollRatio = (p - 0.15) / 0.70;
+
+        var targetOffsetX = -(_scrollOverflow * scrollRatio);
+        ApplyScrollOffset(targetOffsetX);
+    }
+
+    private void ApplyScrollOffset(double offsetX)
+    {
+        _currentScrollX = offsetX;
+        var trans = Translate(offsetX, 0);
+        RootPanel.RenderTransform = trans;
+        if (_lineAnimKind == "Shine" && _shineLayer != null)
+            PositionShineLayer();
+    }
+
+    // ---------- 行间切换动效 ----------
+
+    private DateTimeOffset _lineTransitionUntil;
+
     private void OnLineChanged(bool suppress)
     {
+        // 换行时复位滚动偏移
+        ApplyScrollOffset(0);
+        RecalculateScrollOverflow();
+
         if (!_settingsService.Current.LineTransitionEnabled)
         {
             ClearExitOverlays();
@@ -360,8 +419,14 @@ public sealed partial class LyricsOverlayWindow : Window
         }
         if (suppress || _coverAnimating || !IsVisible)
         {
-            ClearExitOverlays();   // 切歌/seek/封面动画期间：清理残留覆盖层，瞬切
+            ClearExitOverlays();
+            ResetLineTransitionState();
             SyncLastLineText();
+            return;
+        }
+
+        if (_lastMainText == _vm.MainText && _lastTransText == _vm.TransText)
+        {
             return;
         }
 
@@ -396,18 +461,12 @@ public sealed partial class LyricsOverlayWindow : Window
         SyncLastLineText();
     }
 
-    /// <summary>记录当前行文本，供交叉淡化的旧行快照使用。</summary>
     private void SyncLastLineText()
     {
         _lastMainText = _vm.MainText;
         _lastTransText = _vm.TransText;
     }
 
-    /// <summary>
-    /// 旧行退场：把上一行文本作为覆盖层叠加在 LyricsArea 上，按动效类型播放退场动画，
-    /// 与新行的进入动效同时进行，避免旧行瞬灭。覆盖层不放在主行网格内，因此不受
-    /// 进入动效对网格透明度的影响。
-    /// </summary>
     private void PlayExitOverlay(int durMs)
     {
         var s = _settingsService.Current;
@@ -420,7 +479,7 @@ public sealed partial class LyricsOverlayWindow : Window
         {
             var old = CreateExitLyric(_lastMainText);
             old.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            old.HorizontalAlignment = HorizontalAlignment.Left; // 取文字宽度，由 RenderTransform 定位
+            old.HorizontalAlignment = HorizontalAlignment.Left;
             LyricsArea.Children.Add(old);
             _exitMainOverlay = old;
             AnimateExitOverlay(old, _mainGrid, type, s, fadeDur, moveDur);
@@ -436,10 +495,6 @@ public sealed partial class LyricsOverlayWindow : Window
         }
     }
 
-    /// <summary>
-    /// 退场覆盖层动画：淡出类只做透明度；缩放弹入可放大淡出（设置开关）；位移淡入沿
-    /// 与入场相反的一侧退出。覆盖层居中原位（水平 = 歌词区中心 - 文字宽度/2，垂直跟随锚点行）。
-    /// </summary>
     private void AnimateExitOverlay(Control c, Control verticalAnchor, string type, AppSettings s, TimeSpan fadeDur, TimeSpan moveDur)
     {
         var basePoint = ExitBasePoint(c, verticalAnchor);
@@ -486,7 +541,6 @@ public sealed partial class LyricsOverlayWindow : Window
         RemoveExitAfter(c, dur);
     }
 
-    /// <summary>退场覆盖层居中原位（水平 = 歌词区中心 - 文字宽度/2，垂直跟随锚点行）。</summary>
     private Point ExitBasePoint(Control c, Control verticalAnchor)
     {
         var p = verticalAnchor.TranslatePoint(new Point(0, 0), LyricsArea) ?? new Point(0, 0);
@@ -495,7 +549,6 @@ public sealed partial class LyricsOverlayWindow : Window
         return new Point(cx - w / 2, p.Y);
     }
 
-    /// <summary>位移 + 缩放的组合变换（先缩放后平移，配合中心轴 RenderTransformOrigin）。</summary>
     private static TransformOperations ExitTransform(Point t, double scale)
     {
         var b = new TransformOperations.Builder(2);
@@ -504,7 +557,6 @@ public sealed partial class LyricsOverlayWindow : Window
         return b.Build();
     }
 
-    /// <summary>退场动画结束后移除覆盖层并清理引用。</summary>
     private void RemoveExitAfter(Control c, TimeSpan dur)
     {
         _ = Task.Run(async () =>
@@ -521,7 +573,6 @@ public sealed partial class LyricsOverlayWindow : Window
         });
     }
 
-    /// <summary>立即移除未完成的退场覆盖层（动效中断/开关关闭时清理残留）。</summary>
     private void ClearExitOverlays()
     {
         if (_exitMainOverlay != null)
@@ -534,8 +585,6 @@ public sealed partial class LyricsOverlayWindow : Window
             LyricsArea.Children.Remove(_exitTransOverlay);
             _exitTransOverlay = null;
         }
-        // Crossfade 的覆盖层在 _mainGrid / _transGrid 上，不在 LyricsArea 上。
-        // 切歌时必须一并清理，否则会残留旧曲句子 ~300ms（"闪旧句"）。
         if (_crossfadeMain != null)
         {
             _mainGrid.Children.Remove(_crossfadeMain);
@@ -548,7 +597,6 @@ public sealed partial class LyricsOverlayWindow : Window
         }
     }
 
-    /// <summary>淡入/位移淡入/缩放弹入：主行与翻译行整体从起始状态过渡到最终状态。</summary>
     private void PlayLineTransition()
     {
         var s = _settingsService.Current;
@@ -567,12 +615,10 @@ public sealed partial class LyricsOverlayWindow : Window
         AnimateLineHost(_mainGrid, start, dur, easing);
         AnimateLineHost(_transGrid, start, dur, easing);
 
-        // 位移淡入入场模糊：进入过程中文字由模糊逐渐清晰
         if (s.LineTransitionType == "Slide" && s.LineTransitionSlideBlurEnabled)
             StartSlideBlur(durMs);
     }
 
-    /// <summary>位移淡入入场模糊：给主行/翻译行网格挂 BlurEffect，由统一进度驱动器衰减到 0。</summary>
     private void StartSlideBlur(int durMs)
     {
         var radius = Math.Clamp(_settingsService.Current.LineTransitionSlideBlurRadius, 0, 20);
@@ -584,17 +630,12 @@ public sealed partial class LyricsOverlayWindow : Window
         StartLineProgressAnimation("SlideBlur", durMs);
     }
 
-    /// <summary>取消入场模糊：移除网格上的模糊效果。</summary>
     private void ClearSlideBlur()
     {
         _mainGrid.Effect = null;
         _transGrid.Effect = null;
     }
 
-    /// <summary>
-    /// 交叉淡化：新行已就位（整行保持可见），旧行快照叠加在最上层淡出，自然露出新行。
-    /// 避免动画整行网格透明度——否则旧行快照作为子元素会随之变暗，视觉上"藏在"新行后面。
-    /// </summary>
     private void PlayCrossfade(int durMs)
     {
         var s = _settingsService.Current;
@@ -627,14 +668,9 @@ public sealed partial class LyricsOverlayWindow : Window
         }
     }
 
-    /// <summary>当前歌词对齐方式（按设置解析）。</summary>
     private TextAlignment LineAlignmentValue =>
         (TextAlignment)Enum.Parse(typeof(TextAlignment), _settingsService.Current.Alignment);
 
-    /// <summary>
-    /// 当前歌词水平定位方式（按设置解析）。LyricText 把文字绘制在自身 (0,0)，必须让行控件
-    /// 保持文字宽度并居中定位，否则网格被旧行快照撑宽时行控件被 Stretch 拉宽、文字滞留左端。
-    /// </summary>
     private HorizontalAlignment LineHorizontalAlignment => _settingsService.Current.Alignment switch
     {
         "Left" => HorizontalAlignment.Left,
@@ -642,7 +678,6 @@ public sealed partial class LyricsOverlayWindow : Window
         _ => HorizontalAlignment.Center,
     };
 
-    /// <summary>旧行快照（整行主色，无逐字遮罩），样式复制自当前已唱层，并按当前对齐设定渲染。</summary>
     private LyricText CreateExitLyric(string text)
     {
         return new LyricText
@@ -664,7 +699,6 @@ public sealed partial class LyricsOverlayWindow : Window
         };
     }
 
-    /// <summary>旧翻译行快照，样式复制自当前翻译行，并按当前对齐设定渲染。</summary>
     private LyricText CreateExitTranslation(string text)
     {
         return new LyricText
@@ -686,7 +720,6 @@ public sealed partial class LyricsOverlayWindow : Window
         };
     }
 
-    /// <summary>淡出后从父网格移除（任务延迟 → UI 线程移除）；afterRemoved 用于清理引用。</summary>
     private static void FadeOutAndRemove(Grid parent, Control c, TimeSpan dur, Action? afterRemoved = null)
     {
         c.Transitions = new Transitions
@@ -705,10 +738,6 @@ public sealed partial class LyricsOverlayWindow : Window
         });
     }
 
-    /// <summary>
-    /// 逐字显现：隐藏未唱层/未唱辉光，仅已唱层由 EnterProgress 驱动从左到右逐字符点亮；
-    /// 翻译行以淡入同步进入。结束后恢复未唱层，交还卡拉 OK 逐字进度。
-    /// </summary>
     private void PlayReveal(int durMs)
     {
         _revealHidingInactive = true;
@@ -721,10 +750,6 @@ public sealed partial class LyricsOverlayWindow : Window
         StartLineProgressAnimation("Reveal", durMs);
     }
 
-    /// <summary>
-    /// 扫光：主行整体压暗，白色亮带叠加在主行上方从左到右扫描（白底白字时仍清晰可见）。
-    /// 亮带层放在 LyricsArea（视图盒的同级覆盖层）上，不受主行网格透明度影响。
-    /// </summary>
     private void PlayShine(int durMs)
     {
         EnsureShineLayer();
@@ -754,13 +779,12 @@ public sealed partial class LyricsOverlayWindow : Window
         _shineLayer = sl;
     }
 
-    /// <summary>把扫光层定位到主行（MainGrid）在 LyricsArea 坐标系中的位置。</summary>
     private void PositionShineLayer()
     {
         if (_shineLayer == null)
             return;
         var p = _mainGrid.TranslatePoint(new Point(0, 0), LyricsArea) ?? new Point(0, 0);
-        _shineLayer.RenderTransform = Translate(p.X, p.Y);
+        _shineLayer.RenderTransform = Translate(p.X + _currentScrollX, p.Y);
     }
 
     private void ApplyEnterProgress(double p)
@@ -826,9 +850,6 @@ public sealed partial class LyricsOverlayWindow : Window
         _lineAnimKind = "";
     }
 
-    /// <summary>
-    /// 扫光退出：主行从压暗平滑恢复到正常亮度，亮带同步淡出后移除，避免"扫完直接跳回"的突兀感。
-    /// </summary>
     private void PlayShineOutro()
     {
         var durMs = Math.Clamp(_settingsService.Current.LineTransitionDurationMs, 50, 1500);
@@ -857,7 +878,6 @@ public sealed partial class LyricsOverlayWindow : Window
         }
     }
 
-    /// <summary>中断行间动效（新行到来/开关关闭/异常回退）：停表、清理逐字/扫光临时层并恢复隐藏层。</summary>
     private void CancelLineAnimation()
     {
         _lineAnimation.Cancel();
@@ -883,10 +903,6 @@ public sealed partial class LyricsOverlayWindow : Window
         ClearExitOverlays();
     }
 
-    /// <summary>
-    /// 行载体进入动画：先禁用过渡瞬移起始状态，再挂过渡并将属性设为目标值 → 播放过渡。
-    /// （与封面动画同套路；RenderTransform 不参与布局，不干扰 SizeToContent。）
-    /// </summary>
     private static void AnimateLineHost(Control host, TransformOperations start, TimeSpan dur, Easing easing)
     {
         var transitions = new Transitions
@@ -902,16 +918,15 @@ public sealed partial class LyricsOverlayWindow : Window
         host.RenderTransform = TransformOperations.Identity;
     }
 
-    /// <summary>行间滑入方向偏移：1=上，2=下，3=左，4=右，0=无位移；位移强度可配置。</summary>
     private static (double dx, double dy) LineSlideOffset(int dir, double dist)
     {
         var d = Math.Clamp(dist, 0, 60);
         return dir switch
         {
-            1 => (0, -d), // 起点在上方（向下滑入）
-            2 => (0, d),  // 起点在下方（向上滑入）
-            3 => (-d, 0), // 起点在左侧（向右滑入）
-            4 => (d, 0),  // 起点在右侧（向左滑入）
+            1 => (0, -d),
+            2 => (0, d),
+            3 => (-d, 0),
+            4 => (d, 0),
             _ => (0, 0),
         };
     }
@@ -923,7 +938,6 @@ public sealed partial class LyricsOverlayWindow : Window
         return b.Build();
     }
 
-    /// <summary>回退到即时切换的安全状态：取消动效、恢复完全可见与无变换。</summary>
     private void ResetLineTransitionState()
     {
         CancelLineAnimation();
@@ -935,7 +949,6 @@ public sealed partial class LyricsOverlayWindow : Window
         _transGrid.RenderTransform = TransformOperations.Identity;
     }
 
-    /// <summary>设置变化：关闭行间动效时清理可能残留的动画状态。</summary>
     private void OnLineTransitionSettingsChanged()
     {
         if (!_settingsService.Current.LineTransitionEnabled)
@@ -946,7 +959,6 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private double _coverSize;
 
-    /// <summary>构建 translate 变换（Parse 不接受小数，用 Builder）。</summary>
     private static TransformOperations Translate(double x, double y)
     {
         var b = new TransformOperations.Builder(1);
@@ -954,7 +966,6 @@ public sealed partial class LyricsOverlayWindow : Window
         return b.Build();
     }
 
-    /// <summary>按设置重建封面动画过渡（缓动曲线 + 时长），作用于移动/缩放/淡入淡出。</summary>
     private void ApplyCoverAnimationStyle()
     {
         var easing = EasingFor(_settingsService.Current.CoverAnimEasing);
@@ -977,17 +988,8 @@ public sealed partial class LyricsOverlayWindow : Window
         _ => new QuadraticEaseOut(),
     };
 
-    /// <summary>歌词加载完成的等待超时（防封面卡死）。</summary>
     private static readonly TimeSpan CoverAnimTimeout = TimeSpan.FromSeconds(6);
 
-    /// <summary>
-    /// 切歌（任意来源：播放器内切歌 / 悬浮窗上一首下一首）动画状态机（方案二：窗口内叠加）：
-    /// 窗口宽度全程不变；高度仅在动画期间容纳放大后的封面及歌名区；
-    /// 封面作为覆盖层放大到行高尺寸显示在歌词行中央（歌词透明被掩盖），
-    /// 歌词 Ready/NoLyric 后（或超时）执行分支：
-    /// 常驻=封面缩小移动到常驻位 / 不常驻=按方向滑出淡出。尺寸与位置均由 Transitions 平滑过渡，
-    /// 缓动曲线与时长可配置（ApplyCoverAnimationStyle）。
-    /// </summary>
     private void OnCoverChanged()
     {
         ApplyCoverLayout();
@@ -997,7 +999,6 @@ public sealed partial class LyricsOverlayWindow : Window
 
         if (_vm.CoverImage == null)
         {
-            // 无封面：直接显示歌词
             _coverAnimating = false;
             _coverLayoutExpanded = false;
             _coverMotionToken++;
@@ -1023,7 +1024,6 @@ public sealed partial class LyricsOverlayWindow : Window
             _coverTimeoutTimer.Interval = TimeSpan.FromMilliseconds(_vm.CoverAnimMaxMs);
             _coverTimeoutTimer.Start();
 
-            // 固定布局尺寸 + 中心缩放：不再动画 Width/Height，避免左上角扩张造成斜向淡入。
             CoverImage.Width = _coverSize;
             CoverImage.Height = _coverSize;
             _coverPlan = CoverAnimationPlan.Create(
@@ -1041,7 +1041,6 @@ public sealed partial class LyricsOverlayWindow : Window
             return;
         }
 
-        // 非动画切歌：统一应用静止状态
         _coverAnimating = false;
         _coverLayoutExpanded = false;
         ExitCoverTitle();
@@ -1053,13 +1052,11 @@ public sealed partial class LyricsOverlayWindow : Window
     {
         if (_vm.Phase is LyricsPhase.Resolving or LyricsPhase.NoSession)
         {
-            ClearExitOverlays();   // 清除旧覆盖层[cite: 6]
-            CancelLineAnimation(); // 终止旧动画[cite: 6]
-            
-            // 把记录上一句歌词的缓存彻底置空！
-            // 防止新歌到来时，系统误把旧歌的内容当成"上一行"播交叉淡化/退场动画
+            ClearExitOverlays();
+            CancelLineAnimation();
             _lastMainText = "";
             _lastTransText = "";
+            ApplyScrollOffset(0);
         }
 
         if (!_coverAnimating)
@@ -1090,79 +1087,64 @@ public sealed partial class LyricsOverlayWindow : Window
         _coverAnimating = false;
         _coverPosDirty = false;
         SetLyricsOpacity(1);
-        ExitCoverTitle(); // 歌名淡出（250ms）后退出布局
+        ExitCoverTitle();
         _coverPlan = CoverAnimationPlan.Create(
             OuterGrid.Bounds.Width, _coverSize, _coverAnimSize, CoverSlotOffset(),
             _settingsService.Current.CoverAnimDirection,
             _settingsService.Current.CoverAnimSlideDistance);
         if (_vm.CoverEnabled)
         {
-            // 常驻：围绕中心缩小并移动到常驻位，布局尺寸保持不变。
             ApplyCoverVisual(_coverPlan.PersistentEnd);
         }
         else
         {
-            // 不常驻：沿配置方向滑出并淡出。
             ApplyCoverVisual(_coverPlan.TransientEnd);
         }
 
-        // 保持动画画布高度直到退出变换结束，避免窗口先收缩而裁掉正在缩放/滑出的封面。
         _coverStageTimer.Interval = TimeSpan.FromMilliseconds(
             Math.Clamp(_settingsService.Current.CoverAnimDurationMs, 100, 2000) + 50);
         _coverStageTimer.Start();
     }
 
-    /// <summary>
-    /// 歌名进入布局（仅动画期间调用）：先不可见地进入布局（保持 Opacity=0），
-    /// 等布局完成后（Bounds 就绪）在同一轮内完成：瞬移起始位置（无过渡）→ 淡入 → 滑向最终位置。
-    /// 避免"旧位置先可见再被拖动"的跳变。开关关闭时不进入。
-    /// </summary>
     private void EnterCoverTitle()
     {
         if (!_vm.CoverTitleEnabled)
             return;
-        CoverTitleBox.IsVisible = true; // Opacity 保持 0：布局完成前不可见
+        CoverTitleBox.IsVisible = true;
         _coverTitleEnterPending = true;
     }
 
-    /// <summary>歌名淡出（400ms）并沿淡入反方向滑出；快速切歌时跳过，避免误关新歌名。</summary>
     private void ExitCoverTitle()
     {
         var (dx, dy) = CoverTitleSlideOffset();
-        UpdateCoverTitlePosition(dx, dy); // 滑向偏移位置（与淡入同向偏移，视觉对称）
+        UpdateCoverTitlePosition(dx, dy);
         CoverTitleBox.Opacity = 0;
         _ = Task.Run(async () =>
         {
-            await Task.Delay(450); // 等待淡出过渡完成
+            await Task.Delay(450);
             Dispatcher.UIThread.Post(() =>
             {
                 if (_coverAnimating)
-                    return; // 新动画已开始：跳过退出
+                    return;
                 CoverTitleBox.IsVisible = false;
             });
         });
     }
 
-    /// <summary>淡入淡出方向偏移：1=上，2=下，3=左，4=右，0=无位移；强度可配置。</summary>
     private (double dx, double dy) CoverTitleSlideOffset()
     {
         var dir = _vm.CoverTitleAnimDirection;
         var d = Math.Clamp(_settingsService.Current.CoverTitleSlideDistance, 0, 60);
         return dir switch
         {
-            1 => (0, -d), // 起点在上方（向下滑入）
-            2 => (0, d),  // 起点在下方（向上滑入）
-            3 => (-d, 0), // 起点在左侧（向右滑入）
-            4 => (d, 0),  // 起点在右侧（向左滑入）
+            1 => (0, -d),
+            2 => (0, d),
+            3 => (-d, 0),
+            4 => (d, 0),
             _ => (0, 0),
         };
     }
 
-    /// <summary>
-    /// 歌名定位：水平居中于窗口（与封面同轴）；垂直 = 封面目标高度（动画期间 = 行高×3）下方，
-    /// 不依赖封面过渡中的实时尺寸 → 歌名始终位于最终封面下方，不悬浮覆盖在封面上。
-    /// 淡入淡出时叠加方向偏移（dx, dy）。
-    /// </summary>
     private void UpdateCoverTitlePosition(double dx = 0, double dy = 0)
     {
         if (!CoverTitleBox.IsVisible)
@@ -1172,9 +1154,9 @@ public sealed partial class LyricsOverlayWindow : Window
         CoverTitleBox.RenderTransform = Translate(dx, y + dy);
     }
 
-    private void SetLyricsOpacity(double opacity) => LyricsViewbox.Opacity = opacity;
+    // 将原本设置 Viewbox 透明度适配为 Border 视口
+    private void SetLyricsOpacity(double opacity) => LyricsViewport.Opacity = opacity;
 
-    /// <summary>动画封面尺寸 = 行高 × 300%（掩盖歌词加载的大封面；窗口高度由 ContentHeight 自动容纳）。</summary>
     private double AnimCoverSize()
     {
         var h = _mainGrid.Bounds.Height;
@@ -1183,14 +1165,12 @@ public sealed partial class LyricsOverlayWindow : Window
         return Math.Max(h * 3, _coverSize);
     }
 
-    /// <summary>常驻位置（CoverSlot 左上角）在外层 Grid 内的坐标（与封面元素同一坐标系）。</summary>
     private Point CoverSlotOffset()
     {
         var p = CoverSlot.TranslatePoint(new Point(0, 0), OuterGrid) ?? default;
         return new Point(Math.Max(0, p.X), Math.Max(0, p.Y));
     }
 
-    /// <summary>封面位置跟随布局（歌词宽度变化等）；动画期间不移动。</summary>
     private void UpdateCoverPosition()
     {
         if (_coverAnimating)
@@ -1203,11 +1183,6 @@ public sealed partial class LyricsOverlayWindow : Window
         }
     }
 
-    /// <summary>
-    /// 应用非切歌动画期间的封面静止状态。设置页开关、封面数据刷新和普通曲目绑定都走这里，
-    /// 避免只扩大占位列却没有把现有封面设为可见。immediate=true 时禁用过渡，防止设置切换
-    /// 从上一次动画残留位置滑入。
-    /// </summary>
     private void ApplyCoverRestingState(bool immediate)
     {
         if (_coverAnimating)
@@ -1245,7 +1220,6 @@ public sealed partial class LyricsOverlayWindow : Window
         }
     }
 
-    /// <summary>先提交无过渡起点，下一调度轮次再进入目标状态，确保方向起点真实参与渲染。</summary>
     private void BeginCoverMotion(CoverVisualState start, CoverVisualState target)
     {
         var token = ++_coverMotionToken;
@@ -1260,7 +1234,6 @@ public sealed partial class LyricsOverlayWindow : Window
         }, DispatcherPriority.Background);
     }
 
-    /// <summary>应用统一的 Scale + Translate + Opacity 状态；位移放在缩放之后，避免位移量被倍率放大。</summary>
     private void ApplyCoverVisual(CoverVisualState state)
     {
         var b = new TransformOperations.Builder(2);
@@ -1270,14 +1243,10 @@ public sealed partial class LyricsOverlayWindow : Window
         Cover.Opacity = state.Opacity;
     }
 
-    /// <summary>
-    /// 封面尺寸 = 主歌词行实际高度 × 占比（正方形）。
-    /// 基准行高只受字号等设置控制（行文本长度变化不影响行高），设置变化时由 SizeChanged 驱动。
-    /// </summary>
     private void UpdateCoverSize()
     {
         if (_coverAnimating)
-            return; // 动画期间冻结尺寸，避免布局波动打断动画/引起抖动
+            return;
         var baseH = _mainGrid.Bounds.Height;
         if (baseH <= 0)
             baseH = 40;
@@ -1291,7 +1260,6 @@ public sealed partial class LyricsOverlayWindow : Window
         CoverImage.Height = _coverSize;
     }
 
-    /// <summary>封面位置固定左侧（占位列 0，歌词列 1，对称占位列 2 → 歌词保持居中）。</summary>
     private void ApplyCoverLayout()
     {
         Grid.SetColumn(CoverSlot, 0);
@@ -1313,12 +1281,10 @@ public sealed partial class LyricsOverlayWindow : Window
         if (_hwnd != IntPtr.Zero)
             Win32.AssertTopmost(_hwnd);
         SetLocked(_settingsService.Current.Locked);
-        Win32.HideFromAltTab(_hwnd); // AltTab窗口下隐藏
+        Win32.HideFromAltTab(_hwnd);
         UpdatePlayPauseIcon();
         
-        // 调整顺序：先更新可见性，触发布局量测
         UpdateVisibility();
-        // 再初始化锚点
         ApplyAnchor();
         
         LogSizeDiagnostics();
@@ -1327,8 +1293,6 @@ public sealed partial class LyricsOverlayWindow : Window
 
     protected override void OnClosing(WindowClosingEventArgs e)
     {
-        // 桌面歌词窗口不允许用户关闭：关闭 = 隐藏并同步设置（托盘勾选），
-        // 避免窗口销毁后托盘再次 Show() 崩溃；程序退出时由 Cleanup 先置 AllowClose。
         if (!_allowClose)
         {
             e.Cancel = true;
@@ -1361,8 +1325,6 @@ public sealed partial class LyricsOverlayWindow : Window
             var grow = _settingsService.Current.HeightGrowMode;
             if (!_firstSizeApplied)
             {
-                // 初始阶段：尺寸剧烈变化（封面/布局瞬时巨大尺寸），不立即定位
-                // （会把顶部推到屏幕外再被钳到顶边），待尺寸稳定合理后再以锚点定位一次。
                 ScheduleInitialAnchorApply();
             }
             else
@@ -1370,16 +1332,11 @@ public sealed partial class LyricsOverlayWindow : Window
                 RepositionForSizeChange(e, grow);
             }
         }
-        // 记录当前窗口底边（物理像素），供"向上扩展"模式使用
         var scale = Screens.ScreenFromWindow(this)?.Scaling ?? 1.0;
         _lastGrowBottom = Position.Y + (int)Math.Round(ClientSize.Height * scale);
         LogSizeDiagnostics();
     }
 
-    /// <summary>
-    /// 自动布局变化只移动窗口，不改写用户锚点。宽度始终围绕水平锚点变化；高度遵循扩展方向，
-    /// 即使宽高在同一布局事件中同时变化，也不能退回到上下居中的旧逻辑。
-    /// </summary>
     private void RepositionForSizeChange(SizeChangedEventArgs e, int grow)
     {
         var s = Screens.ScreenFromWindow(this)?.Scaling ?? 1.0;
@@ -1409,11 +1366,6 @@ public sealed partial class LyricsOverlayWindow : Window
 
     private DateTimeOffset _lastSizeDiag = DateTimeOffset.MinValue;
 
-    /// <summary>
-    /// 尺寸诊断（节流 1s）：对比 DIP 期望物理尺寸与窗口实际物理尺寸，
-    /// 验证 2K 高分屏下 SizeToContent 物理换算是否正确（客户区 = ClientSize × 缩放？）。
-    /// RenderScaling = 窗口实际渲染缩放，若与屏幕缩放不一致即为 DPI 换算错误的直接证据。
-    /// </summary>
     private void LogSizeDiagnostics()
     {
         if (DateTimeOffset.UtcNow - _lastSizeDiag < TimeSpan.FromSeconds(1))
@@ -1435,7 +1387,6 @@ public sealed partial class LyricsOverlayWindow : Window
                  $"minW={MinWidth:F0} maxW={(double.IsPositiveInfinity(MaxWidth) ? -1 : MaxWidth):F0}");
     }
 
-    /// <summary>窗口首次布局完成后再采集一次尺寸诊断（OnOpened 时 SizeToContent 可能未完成）。</summary>
     private void ScheduleSizeDiagnostics()
     {
         _ = Task.Run(async () =>
@@ -1445,7 +1396,6 @@ public sealed partial class LyricsOverlayWindow : Window
         });
     }
 
-    /// <summary>按下即拖动（控制条区域除外，避免与按钮点击冲突）；锁定状态下禁止拖动。</summary>
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
@@ -1498,34 +1448,24 @@ public sealed partial class LyricsOverlayWindow : Window
             _anchor = new PixelPoint(area.X + area.Width / 2, (int)(area.Y + area.Height * 0.85));
         }
         ClampAnchorToScreens();
-        // 不立即定位：初始布局阶段尺寸巨大/振荡，立即定位会把窗口推到屏幕外。
-        // 待尺寸稳定且合理后再以锚点定位一次。
         ScheduleInitialAnchorApply();
     }
 
-    /// <summary>初始阶段尺寸"合理"的高度上限（正常内容高度远小于此；>此说明处于瞬时巨大尺寸）。</summary>
     private static readonly double InitialHeightThreshold = 300;
 
-    /// <summary>
-    /// 延迟到初始尺寸稳定（连续若干毫秒不再变化）后再以锚点定位。
-    /// 尺寸仍处于瞬时巨大值时先不安排（等下一次变化再判断），避免用巨大尺寸定位。
-    /// </summary>
     private void ScheduleInitialAnchorApply()
     {
-        // 如果高度过小（只有几像素的未布局状态）或处于瞬时巨大值，都不要安排
         if (ClientSize.Height < 10 || ClientSize.Height > InitialHeightThreshold || ClientSize.Width > 2000)
             return;
 
         _initialAnchorDebouncer.Schedule(TimeSpan.FromMilliseconds(150), ApplyInitialAnchor);
     }
 
-    /// <summary>初始定位：以当前尺寸按已有锚点放置窗口，绝不覆写用户设定的 Anchor。</summary>
     private void ApplyInitialAnchor()
     {
         if (_firstSizeApplied)
             return;
 
-        // 如果高度还没达到基本内容期望高度，或者还处于隐藏不可见状态，推迟定位，避免用残缺尺寸定位
         if (ClientSize.Height < 20 || !IsVisible)
         {
             _initialAnchorDebouncer.Schedule(TimeSpan.FromMilliseconds(100), ApplyInitialAnchor);
@@ -1534,11 +1474,7 @@ public sealed partial class LyricsOverlayWindow : Window
 
         _firstSizeApplied = true;
         RepositionToAnchor();
-        
-        // 移除：WriteAnchorFromPosition(); 
-        // 只有用户鼠标拖拽结束（OnPointerReleased）时才应该写回 Anchor！
-        
-        // 记录正确的底边基准
+
         var s = Screens.ScreenFromWindow(this)?.Scaling ?? 1.0;
         _lastGrowBottom = Position.Y + (int)Math.Round(ClientSize.Height * s);
     }
@@ -1569,7 +1505,6 @@ public sealed partial class LyricsOverlayWindow : Window
         _anchorDebouncer.Schedule(TimeSpan.FromMilliseconds(500), () => AnchorChanged?.Invoke(ax, ay));
     }
 
-    /// <summary>退出前立即持久化当前锚点（绕过防抖），保证下次启动位置与退出时一致。</summary>
     public void PersistAnchor()
     {
         if (ClientSize.Width <= 0 || ClientSize.Height <= 0)
