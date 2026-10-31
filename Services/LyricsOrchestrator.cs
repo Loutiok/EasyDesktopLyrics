@@ -147,23 +147,17 @@ public sealed partial class LyricsOrchestrator
 
     private void OnPlaybackChanged(PlaybackSnapshot snapshot)
     {
-        // 歌词未就绪前（Resolving 占位阶段），忽略外部位置推送，防止旧歌残留时间戳污染时钟
+        // 如果当前歌词根本还没就绪（还在占位符阶段），绝对不要让外部旧位置来污染时钟！
         if (Phase != LyricsPhase.Ready)
         {
+            // 只记录播放/暂停状态，位置等歌词下好、真正就绪了再说
             return;
         }
-
-        var posBefore = _clock.Estimate();
+    
+        // 只有歌词真正就绪、曲目进入正常播放后，才采纳正常时钟
         _clock.Sync(snapshot);
         UpdateTimer();
-
-        // 检测手动 Seek 跳变，抑制过渡动效并强制刷新
-        var jump = _clock.Estimate() - posBefore;
-        var seekJumped = jump > TimeSpan.FromMilliseconds(500) || jump < -TimeSpan.FromMilliseconds(500);
-        if (seekJumped)
-            _suppressLineTransition = true;
-
-        Tick(forceRaise: seekJumped, suppressTransition: seekJumped);
+        Tick(forceRaise: false);
         Raise();
     }
 
@@ -189,7 +183,7 @@ public sealed partial class LyricsOrchestrator
 
         Dispatcher.UIThread.Post(() =>
         {
-            // 如果解析完成时曲目代数已过期，丢弃结果，防止旧歌词覆盖新歌
+            // 如果在这段解析期间用户又切歌了（epoch 已经过时），或者实例不一致，直接丢弃
             if (ct.IsCancellationRequested || epoch != _trackEpoch || !ReferenceEquals(Track, t))
                 return;
 
@@ -205,7 +199,6 @@ public sealed partial class LyricsOrchestrator
             Log.Info($"lyric {(doc != null ? $"ready ({doc.Lines.Count} lines, words={_hasWords})" : "not found")}: {t.Title}");
             
             UpdateTimer();
-            // 歌词就绪瞬间瞬显第一句，不触发淡入动画
             _suppressLineTransition = true;
             Tick(forceRaise: true, suppressTransition: true);
             Raise();
@@ -534,31 +527,12 @@ public sealed partial class LyricsOrchestrator
 
         var idx = LrcParser.FindIndex(_doc.Lines, pos);
 
-        // 防抖：行号倒退且时间差在 300ms 以内时视为微抖动，压制回退，维持当前行
-        if (idx < _lineIndex && idx >= 0 && _lineIndex < _doc.Lines.Count && !suppressTransition)
-        {
-            var delta = _doc.Lines[_lineIndex].TimeMs - pos;
-            if (delta > 0 && delta < 300)
-            {
-                idx = _lineIndex;
-            }
-        }
-
         var ended = _doc.IsInstrumental && _doc.Lines.Count > 0
                     && pos > _doc.Lines[^1].TimeMs + 5000;
 
         var timingFrame = WordMode && idx >= 0
             ? LyricsTimelineBuilder.Evaluate(_doc.Lines[idx], pos)
             : LyricTimingFrame.None;
-
-        // 同一行内单调递增约束：除非触发了 Seek 等硬跳转，已唱字数不允许微缩
-        if (idx == _lineIndex && idx >= 0 && !suppressTransition)
-        {
-            if (timingFrame.CompletedCharacters < _timingFrame.CompletedCharacters)
-            {
-                timingFrame = timingFrame with { CompletedCharacters = _timingFrame.CompletedCharacters };
-            }
-        }
 
         var lineChanged = idx != _lineIndex;
         var suppress = suppressTransition || _suppressLineTransition;
